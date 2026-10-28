@@ -1,0 +1,60 @@
+name: Build
+
+# Runs the tests and builds VolumeMixer.exe on every push and pull request.
+# Pushing a tag like v1.0.0 also publishes a GitHub Release with the .exe
+# attached, so people can download it from the Releases page.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests
+
+      - name: Build VolumeMixer.exe
+        run: >
+          pyinstaller run.py
+          --name VolumeMixer
+          --onefile
+          --windowed
+          --noconfirm
+          --icon assets/icon.ico
+          --add-data "assets;assets"
+          --paths src
+          --collect-submodules pycaw
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: VolumeMixer-windows
+          path: dist/VolumeMixer.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/VolumeMixer.exe
+          generate_release_notes: true
