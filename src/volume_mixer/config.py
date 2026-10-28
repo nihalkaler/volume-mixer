@@ -21,6 +21,7 @@ LAYER_NAMES = {
     "top": "Always on top",
 }
 TABS = ("devices", "apps")
+VIEWS = ("panel", "dials")  # dials = the Extra small size
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -38,6 +39,9 @@ class Config:
     tab: str = "devices"
     compact: bool = False
     accent: str | None = None  # e.g. "#2EC4B6"; None uses the theme's accent
+    view: str = "panel"  # "dials" is the Extra small size
+    dial_device: str = "default"  # what the device dial controls
+    dial_app: str | None = None  # what the app dial controls
     x: int | None = None  # widget position; None = not placed yet
     y: int | None = None
     extra: dict = field(default_factory=dict, repr=False)  # unknown keys, kept as-is
@@ -95,6 +99,15 @@ class Config:
             if v and not _HEX.match(v):
                 raise ConfigError(f'`accent` should be a colour like "#2EC4B6", not {v!r}.')
             cfg.accent = v or None
+        if "view" in data:
+            v = str(need("view", (str,), "panel or dials")).lower()
+            if v not in VIEWS:
+                raise ConfigError(f"`view` should be panel or dials, not {v!r}.")
+            cfg.view = v
+        if "dial_device" in data:
+            cfg.dial_device = need("dial_device", (str,), "a device") or "default"
+        if "dial_app" in data:
+            cfg.dial_app = need("dial_app", (str,), "an app") or None
         if "x" in data and "y" in data:
             cfg.x = int(need("x", (int,), "a whole number"))
             cfg.y = int(need("y", (int,), "a whole number"))
@@ -107,7 +120,7 @@ class Config:
         lines = [
             "# Volume Mixer widget settings. Changes appear within a second of saving.",
             "",
-            f"theme = {q(self.theme):<14}# dark | light | cyberpunk | tactical",
+            f"theme = {q(self.theme):<15}# dark | light | cyberpunk | tactical | soundboard",
             f"size = {self.size:<16}# {MIN_SIZE} to {MAX_SIZE}: 50 is normal, 100 is twice as big",
             f"layer = {q(self.layer):<15}# desktop | normal | top",
             f"locked = {str(self.locked).lower():<14}# true stops the widget being dragged",
@@ -119,6 +132,14 @@ class Config:
             lines.append(f"accent = {q(self.accent):<14}# your own accent colour")
         else:
             lines.append('# accent = "#2EC4B6"   # uncomment for your own accent colour')
+        lines += [
+            "",
+            "# Extra small size: two dials instead of the full mixer.",
+            f"view = {q(self.view):<16}# panel | dials",
+            f"dial_device = {q(self.dial_device)}   # \"default\" follows the Windows default output",
+        ]
+        if self.dial_app:
+            lines.append(f"dial_app = {q(self.dial_app)}")
         if self.x is not None and self.y is not None:
             lines += ["", "# Where the widget sits (saved when you drag it).", f"x = {self.x}", f"y = {self.y}"]
         for key, value in self.extra.items():

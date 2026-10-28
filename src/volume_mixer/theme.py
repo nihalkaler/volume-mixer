@@ -17,12 +17,20 @@ from PySide6.QtGui import QColor
 UI_FONTS = ["Segoe UI Variable Text", "Segoe UI", "Inter", "Noto Sans", "sans-serif"]
 HUD_FONTS = ["Bahnschrift", "Segoe UI", "DejaVu Sans Condensed", "sans-serif"]
 
-THEMES = ("dark", "light", "cyberpunk", "tactical")
-THEME_NAMES = {"dark": "Dark", "light": "Light", "cyberpunk": "Cyberpunk", "tactical": "Tactical"}
+THEMES = ("dark", "light", "cyberpunk", "tactical", "soundboard")
+THEME_NAMES = {
+    "dark": "Dark",
+    "light": "Light",
+    "cyberpunk": "Cyberpunk",
+    "tactical": "Tactical",
+    "soundboard": "Sound board",
+}
 
-# Size presets, on the clock's 1-100 scale where 50 is normal.
+# Size presets, on the clock's 1-100 scale where 50 is normal. "Extra small"
+# isn't a number: it switches the widget to two dials (see dials.py).
 SIZES = ((40, "Small"), (50, "Normal"), (65, "Large"), (80, "Extra large"))
 MIN_SIZE, MAX_SIZE = 30, 100
+DIALS_SCALE = 0.85  # text size in the Extra small (dials) view
 
 
 def scale_for(size: int) -> float:
@@ -54,6 +62,7 @@ class Palette:
     glow: bool = False  # neon halo round the panel
     hud: bool = False  # cut-corner panel, scanlines, HUD font
     tactical: bool = False  # even cut corners, hatching, corner brackets
+    console: bool = False  # mixing desk: brushed metal, screws, fader caps, LED meters
 
     def with_accent(self, color: QColor) -> "Palette":
         from dataclasses import replace
@@ -134,7 +143,30 @@ PALETTES: dict[str, Palette] = {
         hud=True,
         tactical=True,
     ),
+    "soundboard": Palette(
+        name="soundboard",
+        panel=rgba(38, 40, 43),
+        panel2=rgba(21, 22, 24),
+        border=rgba(196, 202, 208, 0.30),
+        border2=None,
+        separator=rgba(255, 255, 255, 0.075),
+        text=rgba(206, 211, 216),
+        strong=rgba(242, 244, 246),
+        muted=rgba(134, 141, 148),
+        accent=rgba(74, 222, 128),  # the green of a desk's LEDs
+        hot=rgba(255, 75, 62),
+        danger=rgba(255, 75, 62),
+        track=rgba(0, 0, 0, 0.55),
+        hover=rgba(255, 255, 255, 0.045),
+        tile=rgba(255, 255, 255, 0.06),
+        console=True,
+    ),
 }
+
+# LED meter colours for the sound board theme: green, then yellow, then red.
+LED_GREEN = rgba(74, 222, 128)
+LED_YELLOW = rgba(250, 204, 21)
+LED_RED = rgba(255, 75, 62)
 
 # The look in use right now (set by the window before building widgets).
 P: Palette = PALETTES["dark"]
@@ -158,9 +190,11 @@ def css(c: QColor) -> str:
 def stylesheet() -> str:
     p = P
     hud_font = ", ".join(f'"{f}"' for f in HUD_FONTS)
-    number_font = f"font-family: {hud_font};" if p.hud else ""
-    caps_weight = 700 if p.hud else 600
-    return f"""
+    printed = p.hud or p.console  # condensed, printed-legend look
+    number_font = f"font-family: {hud_font};" if printed else ""
+    caps_weight = 700 if printed else 600
+    sharp = p.hud or p.console  # small corner radii
+    sheet = f"""
 QWidget {{ color: {css(p.text)}; font-size: {px(13)}px; background: transparent; }}
 QToolTip {{
     background: {css(p.panel)}; color: {css(p.strong)}; border: 1px solid {css(p.border)};
@@ -181,31 +215,31 @@ QLabel#Percent {{ color: {css(p.muted)}; font-size: {px(11.5)}px; {number_font} 
 QLabel#Empty {{ color: {css(p.muted)}; font-size: {px(12)}px; padding: {px(18)}px {px(10)}px; }}
 QLabel#Badge {{
     color: {css(QColor(p.panel.red(), p.panel.green(), p.panel.blue()))}; background: {css(p.accent)};
-    border-radius: {px(3) if p.hud else px(7)}px; font-size: {px(9)}px; font-weight: 700;
+    border-radius: {px(3) if sharp else px(7)}px; font-size: {px(9)}px; font-weight: 700;
     padding: {px(1)}px {px(6)}px;
 }}
 
-QFrame#Row {{ border-radius: {px(3) if p.hud else px(10)}px; }}
+QFrame#Row {{ border-radius: {px(3) if sharp else px(10)}px; }}
 QFrame#Row:hover {{ background: {css(p.hover)}; }}
 QFrame#Rule {{ background: {css(p.separator)}; border: none; }}
 
-QToolButton#IconButton {{ border: none; border-radius: {px(3) if p.hud else px(7)}px; padding: {px(3)}px; }}
+QToolButton#IconButton {{ border: none; border-radius: {px(3) if sharp else px(7)}px; padding: {px(3)}px; }}
 QToolButton#IconButton:hover {{ background: {css(p.hover)}; }}
 
 QPushButton#Ghost {{
     color: {css(p.muted)}; border: 1px solid {css(p.separator)};
-    border-radius: {px(3) if p.hud else px(7)}px; padding: {px(1)}px {px(7)}px; font-size: {px(10)}px;
+    border-radius: {px(3) if sharp else px(7)}px; padding: {px(1)}px {px(7)}px; font-size: {px(10)}px;
 }}
 QPushButton#Ghost:hover {{ color: {css(p.strong)}; border-color: {css(p.muted)}; }}
 
 QPushButton#Segment {{
-    color: {css(p.muted)}; border: none; border-radius: {px(3) if p.hud else px(7)}px;
+    color: {css(p.muted)}; border: none; border-radius: {px(3) if sharp else px(7)}px;
     padding: {px(5)}px 0; font-weight: 600; font-size: {px(12)}px;
 }}
 QPushButton#Segment:hover {{ color: {css(p.strong)}; }}
 QPushButton#Segment:checked {{ background: {css(p.hover)}; color: {css(p.strong)}; }}
 QFrame#Segmented {{
-    border: 1px solid {css(p.separator)}; border-radius: {px(4) if p.hud else px(9)}px;
+    border: 1px solid {css(p.separator)}; border-radius: {px(4) if sharp else px(9)}px;
 }}
 
 QSlider {{ min-height: {px(16)}px; }}
@@ -213,7 +247,7 @@ QSlider::groove:horizontal {{ height: {px(4)}px; background: {css(p.track)}; bor
 QSlider::sub-page:horizontal {{ background: {css(p.accent)}; border-radius: {px(2)}px; }}
 QSlider::handle:horizontal {{
     background: {css(p.strong)}; width: {px(12)}px; height: {px(12)}px;
-    margin: -{px(4)}px 0; border-radius: {px(2) if p.hud else px(6)}px;
+    margin: -{px(4)}px 0; border-radius: {px(2) if sharp else px(6)}px;
 }}
 QSlider[muted="true"]::sub-page:horizontal {{ background: {css(p.muted)}; }}
 QSlider[muted="true"]::handle:horizontal {{ background: {css(p.muted)}; }}
@@ -221,7 +255,22 @@ QSlider#MasterSlider {{ min-height: {px(20)}px; }}
 QSlider#MasterSlider::groove:horizontal {{ height: {px(6)}px; border-radius: {px(3)}px; }}
 QSlider#MasterSlider::sub-page:horizontal {{ border-radius: {px(3)}px; }}
 QSlider#MasterSlider::handle:horizontal {{
-    width: {px(16)}px; height: {px(16)}px; margin: -{px(5)}px 0; border-radius: {px(2) if p.hud else px(8)}px;
+    width: {px(16)}px; height: {px(16)}px; margin: -{px(5)}px 0; border-radius: {px(2) if sharp else px(8)}px;
+}}
+
+QComboBox {{
+    color: {css(p.strong)}; background: {css(p.hover)}; border: 1px solid {css(p.separator)};
+    border-radius: {px(3) if sharp else px(7)}px; padding: {px(3)}px {px(18)}px {px(3)}px {px(7)}px;
+    font-size: {px(11.5)}px; font-weight: 600;
+}}
+QComboBox:hover {{ border-color: {css(p.muted)}; }}
+QComboBox:disabled {{ color: {css(p.muted)}; }}
+QComboBox::drop-down {{ border: none; width: {px(16)}px; }}
+QComboBox::down-arrow {{ image: none; width: 0; height: 0; }}
+QComboBox QAbstractItemView {{
+    background: {css(QColor(p.panel.red(), p.panel.green(), p.panel.blue()))}; color: {css(p.text)};
+    border: 1px solid {css(p.border)}; outline: 0; padding: {px(2)}px;
+    selection-background-color: {css(p.hover)}; selection-color: {css(p.strong)};
 }}
 
 QScrollArea {{ border: none; }}
@@ -229,4 +278,33 @@ QScrollBar:vertical {{ background: transparent; width: {px(6)}px; margin: {px(2)
 QScrollBar::handle:vertical {{ background: {css(p.track)}; border-radius: {px(3)}px; min-height: {px(24)}px; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+"""
+    if p.console:
+        sheet += _fader_caps()
+    return sheet
+
+
+def _fader_caps() -> str:
+    """Sliders as on a mixing desk: a dark slot and a metal fader cap with a
+    white line across the middle."""
+    cap = (
+        "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8E949A, stop:0.42 #D9DDE1, "
+        "stop:0.44 #FFFFFF, stop:0.56 #FFFFFF, stop:0.58 #C9CED3, stop:1 #6F757B)"
+    )
+    return f"""
+QSlider {{ min-height: {px(20)}px; }}
+QSlider#MasterSlider {{ min-height: {px(26)}px; }}
+QSlider::groove:horizontal {{
+    height: {px(4)}px; background: #0A0B0C; border: 1px solid rgba(255, 255, 255, 20);
+    border-radius: {px(2)}px;
+}}
+QSlider::sub-page:horizontal {{ background: rgba(74, 222, 128, 80); border-radius: {px(2)}px; }}
+QSlider::handle:horizontal {{
+    background: {cap}; border: 1px solid #141517; width: {px(9)}px;
+    margin: -{px(7)}px 0; border-radius: {px(2)}px;
+}}
+QSlider[muted="true"]::sub-page:horizontal {{ background: rgba(255, 255, 255, 20); }}
+QSlider[muted="true"]::handle:horizontal {{ background: {cap}; }}
+QSlider#MasterSlider::groove:horizontal {{ height: {px(5)}px; }}
+QSlider#MasterSlider::handle:horizontal {{ width: {px(12)}px; margin: -{px(10)}px 0; }}
 """

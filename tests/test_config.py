@@ -19,8 +19,9 @@ def test_first_run_writes_defaults(tmp_path):
 
 
 def test_round_trip_keeps_everything(tmp_path):
-    cfg = Config(theme="cyberpunk", size=65, layer="top", locked=True, opacity=0.6,
-                 tab="apps", compact=True, accent="#2EC4B6", x=-1200, y=40)
+    cfg = Config(theme="soundboard", size=65, layer="top", locked=True, opacity=0.6,
+                 tab="apps", compact=True, accent="#2EC4B6", x=-1200, y=40,
+                 view="dials", dial_device="{0.0.0.00000000}.{ab-12}", dial_app="spotify.exe")
     cfg.extra["future_setting"] = [1, 2]
     again = Config.from_toml(cfg.to_toml())
     assert again == cfg
@@ -38,6 +39,7 @@ def test_values_are_kept_in_range():
         ('layer = "floor"', "layer"),
         ("locked = 1", "locked"),
         ('accent = "teal"', "accent"),
+        ('view = "tiny"', "view"),
         ("size = true", "size"),
         ("theme = ", "TOML"),
     ],

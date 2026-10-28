@@ -276,3 +276,157 @@ def test_clamp_percent():
     assert clamp_percent(-4) == 0
     assert clamp_percent(49.6) == 50
     assert clamp_percent(130) == 100
+
+
+# ---- Extra small: the dials view ------------------------------------------------
+def _dials(w):
+    w.set_size("dials")
+    assert w.dials is not None
+    return w.dials
+
+
+def test_extra_small_turns_into_dials(window, store):
+    w, _ = window
+    full_width = w.width()
+    _dials(w)
+    assert store.config.view == "dials"
+    assert w.width() < full_width
+    # back to the full mixer at the size it had before
+    w.set_size(store.config.size)
+    assert w.dials is None and store.config.view == "panel"
+    assert not w.master.isHidden()
+
+
+def test_size_menu_offers_extra_small(window):
+    w, _ = window
+    w._fill_menu()
+    size_menu = next(a.menu() for a in w.menu.actions() if a.text() == "Size")
+    assert [a.text() for a in size_menu.actions()][0] == "Extra small (dials)"
+
+
+def test_device_dial_starts_on_the_default_output(window):
+    w, backend = window
+    dials = _dials(w)
+    assert dials.target_device().id == "spk"
+    assert dials.device_col.knob.value() == backend.devices["spk"].volume
+    dials.device_col.knob.setValue(30)
+    assert backend.devices["spk"].volume == 30
+
+
+def test_device_dropdown_picks_which_device(window, store):
+    w, backend = window
+    dials = _dials(w)
+    combo = dials.device_col.combo
+    index = combo.findData("hp")
+    combo.setCurrentIndex(index)
+    combo.activated.emit(index)
+    assert store.config.dial_device == "hp"
+    assert dials.device_col.knob.value() == backend.devices["hp"].volume
+    dials.device_col.knob.setValue(15)
+    assert backend.devices["hp"].volume == 15
+    assert backend.devices["spk"].volume == 64  # the master is untouched
+
+
+def test_device_dropdown_lists_microphones_too(window):
+    w, _ = window
+    combo = _dials(w).device_col.combo
+    assert combo.findData("mic") >= 0 and combo.findData("usbmic") >= 0
+
+
+def test_default_follows_windows(window):
+    w, backend = window
+    dials = _dials(w)
+    backend.set_default_device("hp")
+    w.refresh()
+    assert dials.target_device().id == "hp"
+
+
+def test_app_dial_controls_the_chosen_app(window, store):
+    w, backend = window
+    dials = _dials(w)
+    combo = dials.app_col.combo
+    index = combo.findData("discord")
+    combo.setCurrentIndex(index)
+    combo.activated.emit(index)
+    assert store.config.dial_app == "discord"
+    dials.app_col.knob.setValue(22)
+    assert backend.apps["discord"].volume == 22
+    dials.app_col.mute_btn.click()
+    assert backend.apps["discord"].muted is True
+
+
+def test_app_choice_survives_the_app_closing(window, store):
+    w, backend = window
+    store.config.dial_app = "vlc"
+    dials = _dials(w)
+    assert dials.shown_app == "vlc"
+    saved = backend.apps.pop("vlc")
+    w.refresh()
+    assert dials.shown_app != "vlc"  # shows something else meanwhile...
+    assert store.config.dial_app == "vlc"  # ...but remembers the choice
+    backend.apps["vlc"] = saved
+    w.refresh()
+    assert dials.shown_app == "vlc"
+
+
+def test_app_dial_disabled_when_nothing_plays(window):
+    w, backend = window
+    dials = _dials(w)
+    backend.apps.clear()
+    w.refresh()
+    assert not dials.app_col.knob.isEnabled()
+    assert not dials.app_col.combo.isEnabled()
+
+
+def test_knob_turns_with_wheel_and_drag(window, qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+
+    w, backend = window
+    dials = _dials(w)
+    w.show_widget()
+    knob = dials.device_col.knob
+    start = knob.value()
+    centre = QPointF(knob.width() / 2, knob.height() / 2)
+    wheel = QWheelEvent(centre, QPointF(knob.mapToGlobal(centre.toPoint())), QPoint(), QPoint(0, 120),
+                        Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+    QApplication.sendEvent(knob, wheel)
+    assert knob.value() == start + 2
+    g = knob.mapToGlobal(centre.toPoint())
+    for kind, pos in ((QMouseEvent.MouseButtonPress, g), (QMouseEvent.MouseMove, g - QPoint(0, 20)),
+                      (QMouseEvent.MouseButtonRelease, g - QPoint(0, 20))):
+        QApplication.sendEvent(knob, QMouseEvent(kind, QPointF(knob.mapFromGlobal(pos)), QPointF(pos),
+                                                 Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    assert knob.value() == start + 2 + 10  # dragged up 20px
+    assert backend.devices["spk"].volume == knob.value()
+
+
+def test_refresh_does_not_fight_a_turning_knob(window):
+    w, backend = window
+    knob = _dials(w).device_col.knob
+    knob._drag = (QPointF(0, 0), knob.value())
+    backend.devices["spk"].volume = 3
+    w.refresh()
+    assert knob.value() != 3
+    knob._drag = None
+    w.refresh()
+    assert knob.value() == 3
+
+
+@pytest.mark.parametrize("name", theme.THEMES)
+def test_dials_in_every_theme(window, store, name):
+    w, _ = window
+    _dials(w)
+    w.set_theme(name)
+    assert w.dials is not None and theme.P.name == name
+    w.update_meters()
+    assert not w.grab().isNull()
+
+
+def test_soundboard_meters_are_leds(window):
+    w, _ = window
+    w.set_theme("soundboard")
+    assert theme.P.console
+    w.show_widget()
+    w.update_meters()
+    assert not w.master.meter.grab().isNull()
