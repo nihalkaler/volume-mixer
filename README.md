@@ -1,47 +1,100 @@
-# Volume Mixer
+# Volume Mixer Widget
 
-An on-screen volume control panel for Windows 10 and 11. The master volume
-is always at the top, and two tabs underneath let you control every audio
-device and every app separately.
+A desktop widget for Windows 10 and 11 that puts your volume controls on the
+screen. The master volume is always at the top; underneath, one tab controls
+every audio device and the other controls every app separately.
+
+It's the sister of my [World Clock Widget](https://github.com/nihalkaler/world-clock-widget):
+same themes, same placements, same right-click menu, so the two look like a set.
 
 | Devices | Apps |
 | --- | --- |
 | ![Devices tab](docs/devices.png) | ![Apps tab](docs/apps.png) |
 
-## Features
+- **Master volume, always on show**: slider, mute and a live level meter for
+  the default output. It follows Windows when you switch speakers.
+- **Devices tab**: every output (speakers, headphones, HDMI) and input
+  (microphones), each with its own volume, mute and level meter.
+  **Set default** makes any of them the Windows default.
+- **Apps tab**: every app using sound, each with its own volume and mute, like
+  the Windows volume mixer. Apps come and go as they start and stop playing.
+- **Master volume only**: click the arrow (or use the menu) to shrink the
+  widget down to just the master volume.
 
-- **Master volume, always visible** — slider, mute button and live level
-  meter for your default output device. It follows Windows if you switch
-  output devices.
-- **Devices tab** — every connected output (speakers, headphones, HDMI) and
-  input (microphones) with its own volume, mute and level meter. Click
-  **Set default** to make any device the Windows default.
-- **Apps tab** — every app currently using audio, with its own volume and
-  mute, just like the Windows volume mixer. Apps appear and disappear as they
-  start and stop using sound. If an app uses more than one output device,
-  one slider controls all of them.
-- **Always on top** — click the pin to keep the window above everything else.
-- **System tray** — closing the window keeps it in the tray; click the tray
-  icon to bring it back. Right-click the tray icon to quit.
-- Remembers its size, position, tab and pin setting between launches.
-- Only one copy runs at a time; launching it again just brings the window
-  forward.
+  ![Master volume only](docs/compact.png)
 
-## Download
+- **Stays in a fixed spot**: drag it where you want, then lock it. It can sit
+  on the desktop behind your windows, act like a normal window, or stay
+  always on top
+- **Runs all the time**: starts with Windows, sits in the tray, and has no
+  taskbar button
+- **Dark, Light, Cyberpunk and Tactical themes**, four sizes, and your own
+  accent colour
 
-1. Go to the [Releases](../../releases) page.
-2. Download `VolumeMixer.exe` from the latest release.
-3. Double-click it. No installation needed.
+![Light, Cyberpunk and Tactical themes](docs/themes.png)
 
-Windows SmartScreen may warn that the app is from an unknown publisher,
-because the .exe isn't code-signed. Click **More info → Run anyway**.
+## Getting it
+
+**Download:** grab `VolumeMixer.exe` from the [Releases](../../releases) page,
+put it somewhere permanent (for example `C:\Users\<you>\Apps\VolumeMixer\`)
+and double-click it. Windows SmartScreen may warn about an unsigned app the
+first time; choose **More info → Run anyway**.
+
+On first launch it appears in the bottom-right corner, near the Windows volume
+icon, and turns on **Start with Windows**.
+
+## Using it
+
+| To do this | Do this |
+| --- | --- |
+| Change a volume | Drag a slider, or scroll over it |
+| Mute / unmute | Click the speaker (or microphone) icon |
+| Move the widget | Drag any empty part of it with the left mouse button |
+| Stop accidental dragging | Right-click → **Lock position** |
+| Make a device the Windows default | Devices tab → **Set default** |
+| Show just the master volume | Click the arrow top-right, or right-click → **Master volume only** |
+| Keep it behind windows, normal, or on top | Right-click → **Placement** |
+| Change the size or theme | Right-click → **Size** / **Theme** |
+| Reach the menu when the widget is covered | Click the icon in the system tray |
+| Open the Windows sound settings | Right-click → **Windows sound settings…** |
+
+In **On the desktop** placement the widget stays behind your other windows.
+When you press Win+D or click the wallpaper, it comes forward so you can see
+it. **Bring the widget forward** in the menu does the same at any time.
+
+Clicking the widget never takes the focus away from what you're typing in.
+
+## Settings file
+
+Everything is saved to `%APPDATA%\VolumeMixerWidget\config.toml`.
+Right-click → **Edit settings file…** opens it in Notepad, and changes appear
+within a second of saving:
+
+```toml
+theme = "dark"        # dark | light | cyberpunk | tactical
+size = 50             # 30 to 100: 50 is normal, 100 is twice as big
+layer = "desktop"     # desktop | normal | top
+locked = false        # true stops the widget being dragged
+opacity = 0.85        # background, 0.3 to 1.0
+tab = "devices"       # devices | apps
+compact = false       # true shows the master volume only
+accent = "#2EC4B6"    # optional: your own accent colour
+```
+
+If the file has a mistake, the widget tells you what's wrong and keeps using
+the last good settings.
+
+## Removing it
+
+Right-click → untick **Start with Windows** → **Exit**, then delete the exe
+and the `%APPDATA%\VolumeMixerWidget` folder.
 
 ## Run from source
 
-Needs Python 3.10 or newer.
+Needs Python 3.11 or newer.
 
 ```bash
-git clone https://github.com/<your-username>/volume-mixer.git
+git clone https://github.com/nihalkaler/volume-mixer.git
 cd volume-mixer
 python -m venv .venv
 .venv\Scripts\activate
@@ -49,12 +102,9 @@ pip install -r requirements-dev.txt
 python run.py
 ```
 
-Options:
-
-| Flag | What it does |
-| --- | --- |
-| `--demo` | Uses pretend devices and apps. Works on macOS/Linux too, handy for UI work. |
-| `--hidden` | Starts in the system tray without opening the window. |
+`python run.py --demo` uses pretend devices and apps, and works on macOS and
+Linux too, which is handy for working on the look. `--settings PATH` uses a
+different settings file.
 
 ## Build the .exe yourself
 
@@ -66,17 +116,12 @@ pyinstaller run.py --name VolumeMixer --onefile --windowed --noconfirm ^
 
 The file appears in `dist\VolumeMixer.exe`.
 
-## Publishing a release
+## Releasing a new version
 
 GitHub Actions (`.github/workflows/build.yml`) runs the tests and builds the
-.exe on every push. To publish a downloadable release:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The workflow creates a release for that tag with `VolumeMixer.exe` attached.
+.exe on every push. To publish a download, create a release on GitHub with a
+new tag such as `v2.1.0`; the workflow attaches `VolumeMixer.exe` to it a
+couple of minutes later.
 
 ## Tests
 
@@ -84,34 +129,28 @@ The workflow creates a release for that tag with `VolumeMixer.exe` attached.
 python -m pytest -q tests
 ```
 
-The tests drive the real window against the demo audio backend, so they run
-on any OS without a sound card.
+The tests drive the real widget against the demo audio backend, so they run on
+any OS without a sound card. They cover the volume controls, every theme,
+sizes, dragging and locking, compact mode, and the settings file (including
+mistakes in it).
 
 ## How it works
 
-```
-src/volume_mixer/
-├── main.py           start-up, single-instance check, picks the backend
-├── window.py         the main window, tabs, tray icon and refresh timers
-├── widgets.py        master card, volume rows, level meters, sliders
-├── windows_audio.py  Windows Core Audio via pycaw (devices, apps, meters)
-├── demo_audio.py     pretend audio system for --demo and tests
-├── models.py         plain data classes shared by the UI and backends
-├── icons.py          icons drawn in code (speaker, mic, pin, app icon)
-└── theme.py          colours and the Qt stylesheet
-```
+| File | What it does |
+| --- | --- |
+| `src/volume_mixer/window.py` | The widget: borderless see-through panel (drawn per theme, with shadow, scanlines, hatching and corner brackets), dragging, the right-click and tray menu, settings changes, and the refresh timers |
+| `src/volume_mixer/desktop.py` | Windows integration through `ctypes`: placement layers, bringing the widget forward on Win+D (a foreground-window hook, as in the clock), not stealing focus, and Start with Windows (registry `Run` key) |
+| `src/volume_mixer/windows_audio.py` | Windows Core Audio via [pycaw](https://github.com/AndreMiras/pycaw): devices, per-app sessions, level meters, and `IPolicyConfig` for the default device |
+| `src/volume_mixer/widgets.py` | Master volume card, volume rows, level meters, sliders |
+| `src/volume_mixer/theme.py` | The four themes (the World Clock Widget's colours) and the size-aware stylesheet |
+| `src/volume_mixer/config.py` | Settings: TOML load/save, defaults, and keeping values in range |
+| `src/volume_mixer/icons.py` | Icons drawn in code in the theme's colours |
+| `src/volume_mixer/demo_audio.py` | Pretend audio system for `--demo` and the tests |
 
-- Windows audio is read through the Core Audio COM APIs using
-  [pycaw](https://github.com/AndreMiras/pycaw): `IMMDeviceEnumerator` for
-  devices, `IAudioEndpointVolume` for device volume, `IAudioSessionManager2`
-  and `ISimpleAudioVolume` for per-app volume, and `IAudioMeterInformation`
-  for the level meters.
-- Setting the default device uses `IPolicyConfig`, the same undocumented
-  interface the Windows Sound settings use.
-- The window polls the system once a second for device/app changes and 20
-  times a second for the level meters. Everything runs on the UI thread, so
-  there are no COM threading issues.
+The widget polls Windows once a second for device and app changes and 20 times
+a second for the level meters, all on the UI thread, so there are no COM
+threading issues.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
