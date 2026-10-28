@@ -1,9 +1,13 @@
-"""Reusable pieces of the window: level meters, volume rows, the master card."""
+"""Pieces of the widget: level meters, volume rows, the master card, lists.
+
+Sizes go through ``theme.px`` and colours through ``theme.P``, so building
+these after ``theme.use(...)`` gives the chosen theme and size.
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QLinearGradient, QPainter
+from PySide6.QtGui import QFont, QIcon, QLinearGradient, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -17,10 +21,22 @@ from PySide6.QtWidgets import (
 )
 
 from . import icons, theme
+from .theme import px
+
+
+def caps_label(text: str, name: str) -> QLabel:
+    """Small spaced-out capitals, like the clock's HUD labels."""
+    label = QLabel(text.upper())
+    label.setObjectName(name)
+    font = label.font()
+    font.setFamilies(theme.HUD_FONTS if theme.P.hud else theme.UI_FONTS)
+    font.setLetterSpacing(QFont.AbsoluteSpacing, 1.6 * theme.S if theme.P.hud else 1.1 * theme.S)
+    label.setFont(font)
+    return label
 
 
 class ElidedLabel(QLabel):
-    """A label that trims long text with "…" instead of widening the window."""
+    """A label that trims long text with "…" instead of widening the widget."""
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(parent)
@@ -56,6 +72,7 @@ class LevelMeter(QWidget):
         self._level = 0.0
         self.setFixedHeight(height)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
     def set_level(self, peak: float) -> None:
         peak = max(0.0, min(1.0, peak))
@@ -70,20 +87,20 @@ class LevelMeter(QWidget):
     def level(self) -> float:
         return self._level
 
-    def paintEvent(self, _event) -> None:  # noqa: N802 (Qt naming)
+    def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect())
-        radius = r.height() / 2
+        radius = 0 if theme.P.hud else r.height() / 2
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(theme.SURFACE_HI))
+        p.setBrush(theme.P.track)
         p.drawRoundedRect(r, radius, radius)
         if self._level > 0:
             fill = QRectF(r.x(), r.y(), max(r.height(), r.width() * self._level), r.height())
             grad = QLinearGradient(r.topLeft(), r.topRight())
-            grad.setColorAt(0.0, QColor(theme.ACCENT))
-            grad.setColorAt(0.75, QColor(theme.ACCENT))
-            grad.setColorAt(1.0, QColor(theme.METER_HOT))
+            grad.setColorAt(0.0, theme.P.accent)
+            grad.setColorAt(0.7, theme.P.accent)
+            grad.setColorAt(1.0, theme.P.hot)
             p.setBrush(grad)
             p.drawRoundedRect(fill, radius, radius)
 
@@ -97,14 +114,14 @@ class VolumeSlider(QSlider):
         self.setSingleStep(1)
         self.setPageStep(5)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
         self.setProperty("muted", False)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:
-            handle = 18
-            x = event.position().x()
+            handle = px(16)
             span = max(1, self.width() - handle)
-            value = round((x - handle / 2) / span * 100)
+            value = round((event.position().x() - handle / 2) / span * 100)
             self.setValue(max(0, min(100, value)))
         super().mousePressEvent(event)
 
@@ -123,12 +140,13 @@ class VolumeSlider(QSlider):
         self.blockSignals(False)
 
 
-def icon_button(tooltip: str, size: int = 20) -> QToolButton:
+def icon_button(tooltip: str, size: int) -> QToolButton:
     btn = QToolButton()
     btn.setObjectName("IconButton")
     btn.setToolTip(tooltip)
     btn.setIconSize(QSize(size, size))
     btn.setCursor(Qt.PointingHandCursor)
+    btn.setFocusPolicy(Qt.NoFocus)
     btn.setAutoRaise(True)
     return btn
 
@@ -145,11 +163,13 @@ class VolumeRow(QFrame):
         self.key = key
         self.is_input = is_input
         self._muted = False
+        self._can_default = can_default
         self.setObjectName("Row")
         self.setAttribute(Qt.WA_StyledBackground, True)
+        icon_size = px(28)
 
         self.icon_label = QLabel()
-        self.icon_label.setFixedSize(32, 32)
+        self.icon_label.setFixedSize(icon_size, icon_size)
         self.set_icon(icon)
 
         self.title = ElidedLabel()
@@ -158,31 +178,29 @@ class VolumeRow(QFrame):
         self.subtitle.setObjectName("RowSubtitle")
         self.subtitle.hide()
 
-        self.badge = QLabel("DEFAULT")
-        self.badge.setObjectName("Badge")
+        self.badge = caps_label("Default", "Badge")
         self.badge.hide()
         self.default_btn = QPushButton("Set default")
         self.default_btn.setObjectName("Ghost")
         self.default_btn.setCursor(Qt.PointingHandCursor)
+        self.default_btn.setFocusPolicy(Qt.NoFocus)
         self.default_btn.setToolTip("Make this the Windows default device")
         self.default_btn.clicked.connect(lambda: self.makeDefault.emit(self.key))
         self.default_btn.hide()
-        self._can_default = can_default
 
-        self.mute_btn = icon_button("Mute", 18)
+        self.mute_btn = icon_button("Mute", px(16))
         self.mute_btn.clicked.connect(self._on_mute_clicked)
 
         self.slider = VolumeSlider()
         self.slider.valueChanged.connect(self._on_slider)
         self.percent = QLabel("0")
         self.percent.setObjectName("Percent")
-        self.percent.setFixedWidth(30)
+        self.percent.setFixedWidth(px(26))
         self.percent.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.meter = LevelMeter(3)
+        self.meter = LevelMeter(px(2.5))
 
-        # layout -----------------------------------------------------------
         head = QHBoxLayout()
-        head.setSpacing(8)
+        head.setSpacing(px(6))
         names = QVBoxLayout()
         names.setSpacing(0)
         names.addWidget(self.title)
@@ -192,32 +210,31 @@ class VolumeRow(QFrame):
         head.addWidget(self.default_btn, 0, Qt.AlignVCenter)
 
         slider_col = QVBoxLayout()
-        slider_col.setSpacing(5)
-        slider_col.setContentsMargins(0, 6, 0, 0)
+        slider_col.setSpacing(px(3))
+        slider_col.setContentsMargins(0, px(3), 0, 0)
         slider_col.addWidget(self.slider)
         slider_col.addWidget(self.meter)
 
         controls = QHBoxLayout()
-        controls.setSpacing(6)
-        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(px(4))
         controls.addWidget(self.mute_btn, 0, Qt.AlignTop)
         controls.addLayout(slider_col, 1)
         controls.addWidget(self.percent, 0, Qt.AlignTop)
 
         right = QVBoxLayout()
-        right.setSpacing(2)
+        right.setSpacing(0)
         right.addLayout(head)
         right.addLayout(controls)
 
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(12, 10, 12, 8)
-        outer.setSpacing(12)
+        outer.setContentsMargins(px(8), px(7), px(8), px(6))
+        outer.setSpacing(px(10))
         outer.addWidget(self.icon_label, 0, Qt.AlignTop)
         outer.addLayout(right, 1)
 
-    # ------------------------------------------------------------------
     def set_icon(self, icon: QIcon) -> None:
-        self.icon_label.setPixmap(icon.pixmap(QSize(32, 32)))
+        size = self.icon_label.width()
+        self.icon_label.setPixmap(icon.pixmap(QSize(size, size)))
 
     def set_state(
         self,
@@ -233,10 +250,8 @@ class VolumeRow(QFrame):
             self.subtitle.show()
         else:
             self.subtitle.hide()
-
         self.badge.setVisible(is_default)
         self.default_btn.setVisible(self._can_default and not is_default)
-
         self.slider.set_value_quietly(volume)
         self._show_volume(self.slider.value(), muted)
 
@@ -244,10 +259,8 @@ class VolumeRow(QFrame):
         self._muted = muted
         self.percent.setText(str(volume))
         self.slider.set_muted_look(muted)
-        if self.is_input:
-            self.mute_btn.setIcon(icons.microphone(18, muted))
-        else:
-            self.mute_btn.setIcon(icons.speaker_for(volume, muted, 18))
+        size = px(16)
+        self.mute_btn.setIcon(icons.microphone(size, muted) if self.is_input else icons.speaker_for(volume, muted, size))
         self.mute_btn.setToolTip("Unmute" if muted else "Mute")
 
     def _on_slider(self, value: int) -> None:
@@ -259,77 +272,71 @@ class VolumeRow(QFrame):
         self.muteToggled.emit(self.key, self._muted)
 
 
-class MasterCard(QFrame):
-    """The always-visible master volume at the top of the window."""
+class MasterCard(QWidget):
+    """The master volume, always shown at the top of the widget."""
 
     volumeChanged = Signal(int)
     muteToggled = Signal(bool)
-    pinToggled = Signal(bool)
+    collapseToggled = Signal(bool)  # True = show the master volume only
 
     def __init__(self):
         super().__init__()
-        self.setObjectName("MasterCard")
-        self.setAttribute(Qt.WA_StyledBackground, True)
         self._muted = False
-        self._has_device = True
 
-        eyebrow = QLabel("MASTER VOLUME")
-        eyebrow.setObjectName("Eyebrow")
+        eyebrow = caps_label("Master volume", "Eyebrow")
         self.device = ElidedLabel("Default output")
         self.device.setObjectName("MasterDevice")
-
         self.percent = QLabel("0")
         self.percent.setObjectName("MasterPercent")
-        self.percent.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.percent.setAlignment(Qt.AlignRight | Qt.AlignBottom)
 
-        self.pin_btn = icon_button("Keep on top of other windows", 18)
-        self.pin_btn.setCheckable(True)
-        self.pin_btn.setIcon(icons.pin(18, False))
-        self.pin_btn.toggled.connect(self._on_pin)
+        self.collapse_btn = icon_button("Show the master volume only", px(16))
+        self.collapse_btn.setCheckable(True)
+        self.collapse_btn.setIcon(icons.chevron(px(16), up=True))
+        self.collapse_btn.toggled.connect(self._on_collapse)
 
-        self.mute_btn = icon_button("Mute", 24)
-        self.mute_btn.setFixedSize(40, 40)
+        self.mute_btn = icon_button("Mute", px(22))
+        self.mute_btn.setFixedSize(px(34), px(34))
         self.mute_btn.clicked.connect(self._on_mute_clicked)
 
         self.slider = VolumeSlider()
         self.slider.setObjectName("MasterSlider")
         self.slider.valueChanged.connect(self._on_slider)
-        self.meter = LevelMeter(4)
+        self.meter = LevelMeter(px(3.5))
 
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(px(4))
         top.addWidget(eyebrow, 1, Qt.AlignVCenter)
-        top.addWidget(self.pin_btn, 0, Qt.AlignVCenter)
+        top.addWidget(self.collapse_btn, 0, Qt.AlignVCenter)
 
         name_row = QHBoxLayout()
-        name_row.setSpacing(8)
+        name_row.setSpacing(px(8))
         name_row.addWidget(self.device, 1, Qt.AlignBottom)
         name_row.addWidget(self.percent, 0, Qt.AlignBottom)
 
         slider_col = QVBoxLayout()
-        slider_col.setSpacing(8)
-        slider_col.setContentsMargins(0, 8, 0, 0)
+        slider_col.setSpacing(px(6))
+        slider_col.setContentsMargins(0, px(6), 0, 0)
         slider_col.addWidget(self.slider)
         slider_col.addWidget(self.meter)
 
         controls = QHBoxLayout()
-        controls.setSpacing(10)
+        controls.setSpacing(px(8))
         controls.addWidget(self.mute_btn, 0, Qt.AlignTop)
         controls.addLayout(slider_col, 1)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 14, 18, 16)
-        lay.setSpacing(4)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         lay.addLayout(top)
         lay.addLayout(name_row)
-        lay.addSpacing(6)
+        lay.addSpacing(px(4))
         lay.addLayout(controls)
 
-    # ------------------------------------------------------------------
     def set_device(self, name: str | None, volume: int = 0, muted: bool = False) -> None:
-        self._has_device = name is not None
-        self.slider.setEnabled(self._has_device)
-        self.mute_btn.setEnabled(self._has_device)
+        has_device = name is not None
+        self.slider.setEnabled(has_device)
+        self.mute_btn.setEnabled(has_device)
         if name is None:
             self.device.set_full_text("No output device")
             self.percent.setText("–")
@@ -339,17 +346,23 @@ class MasterCard(QFrame):
         self.slider.set_value_quietly(volume)
         self._show_volume(self.slider.value(), muted)
 
-    def set_pinned(self, pinned: bool) -> None:
-        self.pin_btn.blockSignals(True)
-        self.pin_btn.setChecked(pinned)
-        self.pin_btn.blockSignals(False)
-        self.pin_btn.setIcon(icons.pin(18, pinned))
+    def set_collapsed(self, collapsed: bool) -> None:
+        self.collapse_btn.blockSignals(True)
+        self.collapse_btn.setChecked(collapsed)
+        self.collapse_btn.blockSignals(False)
+        self._update_collapse_icon(collapsed)
+
+    def _update_collapse_icon(self, collapsed: bool) -> None:
+        self.collapse_btn.setIcon(icons.chevron(px(16), up=not collapsed))
+        self.collapse_btn.setToolTip(
+            "Show devices and apps" if collapsed else "Show the master volume only"
+        )
 
     def _show_volume(self, volume: int, muted: bool) -> None:
         self._muted = muted
         self.percent.setText(str(volume))
         self.slider.set_muted_look(muted)
-        self.mute_btn.setIcon(icons.speaker_for(volume, muted, 24))
+        self.mute_btn.setIcon(icons.speaker_for(volume, muted, px(22)))
         self.mute_btn.setToolTip("Unmute" if muted else "Mute")
 
     def _on_slider(self, value: int) -> None:
@@ -360,13 +373,13 @@ class MasterCard(QFrame):
         self._show_volume(self.slider.value(), not self._muted)
         self.muteToggled.emit(self._muted)
 
-    def _on_pin(self, on: bool) -> None:
-        self.pin_btn.setIcon(icons.pin(18, on))
-        self.pinToggled.emit(on)
+    def _on_collapse(self, collapsed: bool) -> None:
+        self._update_collapse_icon(collapsed)
+        self.collapseToggled.emit(collapsed)
 
 
 class ListPanel(QWidget):
-    """A vertical list of rows that is kept in sync with the system.
+    """A vertical list of rows kept in sync with the system.
 
     Rows are reused between refreshes (so a slider being dragged is never
     destroyed), new ones are added and vanished ones removed.
@@ -377,8 +390,8 @@ class ListPanel(QWidget):
         self.rows: dict[str, VolumeRow] = {}
         self._order: list[object] = []
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(0, 4, 0, 8)
-        self._layout.setSpacing(2)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
         self._empty = QLabel(empty_text)
         self._empty.setObjectName("Empty")
         self._empty.setAlignment(Qt.AlignCenter)
@@ -390,20 +403,19 @@ class ListPanel(QWidget):
     def section(self, title: str) -> QLabel:
         label = self._sections.get(title)
         if label is None:
-            label = QLabel(title.upper())
-            label.setObjectName("Section")
+            label = caps_label(title, "Section")
             self._sections[title] = label
         return label
 
     def arrange(self, items: list[object]) -> None:
-        """Lay out ``items`` (rows and section labels) in this exact order."""
+        """Lay out ``items`` (rows and section labels) in exactly this order."""
         live_rows = {w for w in items if isinstance(w, VolumeRow)}
         for key, row in list(self.rows.items()):
             if row not in live_rows:
                 self._layout.removeWidget(row)
                 row.deleteLater()
                 del self.rows[key]
-        for title, label in list(self._sections.items()):
+        for label in self._sections.values():
             if label not in items:
                 self._layout.removeWidget(label)
                 label.hide()
@@ -418,3 +430,8 @@ class ListPanel(QWidget):
             self._layout.insertWidget(1 + i, w)  # index 0 is the empty label
             w.show()
         self._order = list(items)
+
+    def content_height(self) -> int:
+        """Height the list needs to show every row without scrolling."""
+        self._layout.activate()
+        return self._layout.sizeHint().height()
