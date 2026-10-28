@@ -6,6 +6,8 @@ no taskbar button, tray icon, and one right-click menu for everything."""
 from __future__ import annotations
 
 import logging
+import math
+import random
 
 from PySide6.QtCore import QFileInfo, QFileSystemWatcher, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import (
@@ -18,6 +20,8 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
+    QRadialGradient,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -37,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from . import APP_NAME, desktop, icons, theme
 from .config import LAYER_NAMES, LAYERS, Config, ConfigStore
+from .dials import DialsView
 from .models import INPUT, OUTPUT, AppInfo, AudioBackend, DeviceInfo
 from .theme import px
 from .widgets import ListPanel, MasterCard, VolumeRow
@@ -52,8 +57,23 @@ TAB_APPS = 1
 TAB_KEYS = ("devices", "apps")
 
 PANEL_WIDTH = 330  # at normal size
+DIALS_WIDTH = 310  # the Extra small (dials) view, at its own scale
 MAX_LIST_HEIGHT = 300  # rows beyond this scroll
 SCREEN_GAP = 24  # gap from the screen edge on first launch
+
+
+def _draw_screw(painter: QPainter, centre: QPointF, radius: float, angle: float) -> None:
+    """A small countersunk slotted screw head."""
+    head = QRadialGradient(centre - QPointF(radius * 0.35, radius * 0.35), radius * 1.4)
+    head.setColorAt(0, QColor(214, 218, 222))
+    head.setColorAt(1, QColor(92, 97, 102))
+    painter.setPen(QPen(QColor(0, 0, 0, 120), max(0.8, radius * 0.18)))
+    painter.setBrush(head)
+    painter.drawEllipse(centre, radius, radius)
+    rad = math.radians(angle)
+    dx, dy = math.cos(rad) * radius * 0.72, math.sin(rad) * radius * 0.72
+    painter.setPen(QPen(QColor(40, 42, 45), max(0.8, radius * 0.32), Qt.SolidLine, Qt.RoundCap))
+    painter.drawLine(centre - QPointF(dx, dy), centre + QPointF(dx, dy))
 
 
 def _chamfered(r: QRectF, big: float, small: float) -> QPainterPath:
@@ -88,6 +108,8 @@ class MixerWindow(QWidget):
         self._drag_offset: QPoint | None = None
         self._last_error: str | None = None
         self._content: QWidget | None = None
+        self._panel_cache: tuple | None = None
+        self.dials: DialsView | None = None
         self.margin = 0
 
         self.setWindowTitle(APP_NAME + (" (demo)" if demo else ""))
@@ -130,10 +152,12 @@ class MixerWindow(QWidget):
         return pal
 
     def _build(self) -> None:
-        theme.use(self._palette(), theme.scale_for(self.cfg.size))
+        use_dials = self.cfg.view == "dials"
+        theme.use(self._palette(), theme.DIALS_SCALE if use_dials else theme.scale_for(self.cfg.size))
         self.margin = px(14)  # room for the soft shadow round the panel
         pad = px(14)
-        self._root.setContentsMargins(self.margin + pad, self.margin + px(12), self.margin + pad, self.margin + px(10))
+        bottom = px(13) if theme.P.console else px(10)  # clear of the screws
+        self._root.setContentsMargins(self.margin + pad, self.margin + px(12), self.margin + pad, self.margin + bottom)
 
         if self._content is not None:
             self._root.removeWidget(self._content)
@@ -145,6 +169,23 @@ class MixerWindow(QWidget):
         lay = QVBoxLayout(content)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
+
+        if use_dials:
+            self.dials = DialsView(self.cfg.dial_device, self.cfg.dial_app)
+            self.dials.deviceVolume.connect(self._set_device_volume)
+            self.dials.deviceMute.connect(self._set_device_mute)
+            self.dials.appVolume.connect(self._set_app_volume)
+            self.dials.appMute.connect(self._set_app_mute)
+            self.dials.deviceChosen.connect(self._remember_dial_device)
+            self.dials.appChosen.connect(self._remember_dial_app)
+            self.dials.expandRequested.connect(lambda: self.set_size(self.cfg.size))
+            lay.addWidget(self.dials)
+            self._root.addWidget(content)
+            self._content = content
+            self.refresh()
+            self.update()
+            return
+        self.dials = None
 
         self.master = MasterCard()
         self.master.volumeChanged.connect(self._set_master_volume)
@@ -213,17 +254,20 @@ class MixerWindow(QWidget):
     # ------------------------------------------------------------------
     def _fit(self) -> None:
         """Size the widget to its contents (lists scroll past a maximum)."""
-        if not self.cfg.compact:
+        if self.dials is None and not self.cfg.compact:
             panel = (self.devices_panel, self.apps_panel)[self.pages.currentIndex()]
             want = min(panel.content_height(), px(MAX_LIST_HEIGHT))
             if self.pages.height() != want or self.pages.minimumHeight() != want:
                 self.pages.setFixedHeight(want)
         # Recalculate now rather than on the next event-loop pass, so showing
         # or hiding the lists resizes the widget straight away.
-        for layout in (self.lists.layout(), self._content.layout(), self._root):
+        layouts = [self._content.layout(), self._root]
+        if self.dials is None:
+            layouts.insert(0, self.lists.layout())
+        for layout in layouts:
             layout.invalidate()
             layout.activate()
-        width = px(PANEL_WIDTH) + 2 * self.margin
+        width = px(DIALS_WIDTH if self.dials is not None else PANEL_WIDTH) + 2 * self.margin
         height = self._root.sizeHint().height()
         size = QSize(width, height)
         if size == self.size() and self.minimumSize() == size:
@@ -297,13 +341,30 @@ class MixerWindow(QWidget):
         if p.hud:
             return _chamfered(r, px(16), px(5))
         path = QPainterPath()
-        path.addRoundedRect(r, px(16), px(16))
+        radius = px(6) if p.console else px(16)
+        path.addRoundedRect(r, radius, radius)
         return path
 
     def paintEvent(self, _event) -> None:  # noqa: N802
+        # The panel only changes with the theme, size or opacity, so it's drawn
+        # once into an image. The level meters repaint 20 times a second, and
+        # each repaint only copies the image instead of redrawing the panel.
+        dpr = self.devicePixelRatioF()
+        key = (self.size().width(), self.size().height(), dpr, theme.P, theme.S, self.cfg.opacity, self.margin)
+        if self._panel_cache is None or self._panel_cache[0] != key:
+            image = QPixmap(round(self.width() * dpr), round(self.height() * dpr))
+            image.setDevicePixelRatio(dpr)
+            image.fill(Qt.transparent)
+            painter = QPainter(image)
+            self._draw_panel(painter)
+            painter.end()
+            self._panel_cache = (key, image)
+        painter = QPainter(self)
+        painter.drawPixmap(0, 0, self._panel_cache[1])
+
+    def _draw_panel(self, painter: QPainter) -> None:
         p = theme.P
         s = theme.S
-        painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         m = self.margin
         r = QRectF(self.rect()).adjusted(m + 0.5, m + 0.5, -m - 0.5, -m - 0.5)
@@ -348,6 +409,22 @@ class MixerWindow(QWidget):
             while y < r.bottom():
                 painter.drawRect(QRectF(r.left(), y, r.width(), max(1.0, s)))
                 y += 3 * max(1.0, s)
+        elif p.console:  # brushed metal: fine horizontal streaks
+            rng = random.Random(7)  # same streaks every time
+            y = r.top()
+            while y < r.bottom():
+                light = rng.random() < 0.5
+                alpha = rng.randint(3, 9)
+                painter.setPen(QPen(QColor(255, 255, 255, alpha) if light else QColor(0, 0, 0, alpha + 4), 1))
+                x0 = r.left() + rng.random() * r.width() * 0.3
+                x1 = r.right() - rng.random() * r.width() * 0.3
+                painter.drawLine(QPointF(x0, y), QPointF(x1, y))
+                y += 1.0 + rng.random() * 1.6
+            # a light catch along the top edge
+            shine = QLinearGradient(r.topLeft(), r.topLeft() + QPointF(0, 26 * s))
+            shine.setColorAt(0, QColor(255, 255, 255, 16))
+            shine.setColorAt(1, QColor(255, 255, 255, 0))
+            painter.fillRect(r, shine)
         painter.restore()
 
         border = p.border
@@ -390,6 +467,15 @@ class MixerWindow(QWidget):
                     c.setAlphaF(alpha * color.alphaF())
                     painter.setPen(QPen(c, width * s, Qt.SolidLine, Qt.RoundCap))
                     painter.drawLine(QPointF(x0, y), QPointF(x1, y))
+        elif p.console:  # a screw in each corner, slots turned every which way
+            inset, radius = 7 * s, 3.0 * s
+            for i, (cx, cy) in enumerate((
+                (r.left() + inset, r.top() + inset),
+                (r.right() - inset, r.top() + inset),
+                (r.left() + inset, r.bottom() - inset),
+                (r.right() - inset, r.bottom() - inset),
+            )):
+                _draw_screw(painter, QPointF(cx, cy), radius, angle=(25, 110, 160, 65)[i])
 
     # ------------------------------------------------------------------
     # mouse: drag to move, right-click for the menu
@@ -467,6 +553,7 @@ class MixerWindow(QWidget):
         compact = m.addAction("Master volume only")
         compact.setCheckable(True)
         compact.setChecked(cfg.compact)
+        compact.setEnabled(cfg.view != "dials")
         compact.toggled.connect(self.set_compact)
 
         def choices(title, options, current, setter):
@@ -479,7 +566,8 @@ class MixerWindow(QWidget):
                 group.addAction(act)
                 act.triggered.connect(lambda _=False, v=value: setter(v))
 
-        choices("Size", theme.SIZES, cfg.size, self.set_size)
+        sizes = [("dials", "Extra small (dials)"), *theme.SIZES]
+        choices("Size", sizes, "dials" if cfg.view == "dials" else cfg.size, self.set_size)
         choices("Theme", [(t, theme.THEME_NAMES[t]) for t in theme.THEMES], cfg.theme, self.set_theme)
         choices("Placement", [(layer, LAYER_NAMES[layer]) for layer in LAYERS], cfg.layer, self.set_layer)
 
@@ -511,8 +599,20 @@ class MixerWindow(QWidget):
         self.store.save()
         self.apply_config(old)
 
-    def set_size(self, size: int) -> None:
-        self._change(size=size)
+    def set_size(self, size: int | str) -> None:
+        """A number from the size menu, or "dials" for Extra small."""
+        if size == "dials":
+            self._change(view="dials")
+        else:
+            self._change(view="panel", size=int(size))
+
+    def _remember_dial_device(self, choice: str) -> None:
+        self.cfg.dial_device = choice
+        self.store.save()
+
+    def _remember_dial_app(self, choice: str) -> None:
+        self.cfg.dial_app = choice
+        self.store.save()
 
     def set_theme(self, name: str) -> None:
         self._change(theme=name)
@@ -535,23 +635,28 @@ class MixerWindow(QWidget):
     def show_tab(self, index: int) -> None:
         if TAB_KEYS[index] != self.cfg.tab:
             self._change(tab=TAB_KEYS[index])
-        else:
+        elif self.dials is None:
             self.pages.setCurrentIndex(index)
             self.tab_buttons.button(index).setChecked(True)
 
     def apply_config(self, old: Config) -> None:
         new = self.cfg
-        if (new.theme, new.size, new.accent) != (old.theme, old.size, old.accent):
+        looks = ("theme", "size", "accent", "view")
+        if any(getattr(new, k) != getattr(old, k) for k in looks):
             self._build()
         if new.opacity != old.opacity:
             self.update()
-        if new.compact != old.compact:
-            self.master.set_collapsed(new.compact)
-            self.lists.setVisible(not new.compact)
-        if new.tab != old.tab:
-            index = TAB_KEYS.index(new.tab)
-            self.pages.setCurrentIndex(index)
-            self.tab_buttons.button(index).setChecked(True)
+        if self.dials is None:
+            if new.compact != old.compact:
+                self.master.set_collapsed(new.compact)
+                self.lists.setVisible(not new.compact)
+            if new.tab != old.tab:
+                index = TAB_KEYS.index(new.tab)
+                self.pages.setCurrentIndex(index)
+                self.tab_buttons.button(index).setChecked(True)
+        elif (new.dial_device, new.dial_app) != (old.dial_device, old.dial_app):
+            self.dials.set_choices(new.dial_device, new.dial_app)
+            self.refresh()
         if new.layer != old.layer and self.isVisible():
             self.layer.apply(new.layer)
         self._fit()
@@ -631,6 +736,16 @@ class MixerWindow(QWidget):
             except Exception:
                 log.exception("Could not read the default output")
         self._master_id = master.id if master else None
+        if self.dials is not None:
+            try:
+                apps = self.backend.list_apps()
+            except Exception:
+                log.exception("Could not list apps")
+                apps = []
+            self.dials.update_state(devices, apps, self._icon_for)
+            self._update_tray_tooltip(master)
+            self._fit()
+            return
         if master:
             self.master.set_device(master.name, master.volume, master.muted)
         else:
@@ -717,6 +832,9 @@ class MixerWindow(QWidget):
         if not self.isVisible():
             return
         try:
+            if self.dials is not None:
+                self.dials.update_meters(self.backend.device_peak, self.backend.app_peak)
+                return
             if self._master_id:
                 self.master.meter.set_level(self.backend.device_peak(self._master_id))
             if self.cfg.compact:
@@ -740,7 +858,7 @@ class MixerWindow(QWidget):
             log.exception("Could not %s", what)
 
     def _set_master_volume(self, value: int) -> None:
-        if self._master_id:
+        if self._master_id and self.dials is None:
             self._guard("set master volume", self.backend.set_device_volume, self._master_id, value)
             row = self.devices_panel.rows.get(self._master_id)
             if row:
@@ -753,7 +871,7 @@ class MixerWindow(QWidget):
 
     def _set_device_volume(self, device_id: str, value: int) -> None:
         self._guard("set device volume", self.backend.set_device_volume, device_id, value)
-        if device_id == self._master_id:
+        if device_id == self._master_id and self.dials is None:
             self.master.set_device(self.master.device.full_text(), value, self.master._muted)
 
     def _set_device_mute(self, device_id: str, muted: bool) -> None:

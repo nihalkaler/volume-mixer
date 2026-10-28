@@ -7,7 +7,7 @@ these after ``theme.use(...)`` gives the chosen theme and size.
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QIcon, QLinearGradient, QPainter
+from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,10 +29,16 @@ def caps_label(text: str, name: str) -> QLabel:
     label = QLabel(text.upper())
     label.setObjectName(name)
     font = label.font()
-    font.setFamilies(theme.HUD_FONTS if theme.P.hud else theme.UI_FONTS)
-    font.setLetterSpacing(QFont.AbsoluteSpacing, 1.6 * theme.S if theme.P.hud else 1.1 * theme.S)
+    printed = theme.P.hud or theme.P.console
+    font.setFamilies(theme.HUD_FONTS if printed else theme.UI_FONTS)
+    font.setLetterSpacing(QFont.AbsoluteSpacing, 1.6 * theme.S if printed else 1.1 * theme.S)
     label.setFont(font)
     return label
+
+
+def meter_height(normal: float) -> int:
+    """LED meters on the sound board are a little taller so the lights show."""
+    return px(normal * 1.6) if theme.P.console else px(normal)
 
 
 class ElidedLabel(QLabel):
@@ -88,6 +94,9 @@ class LevelMeter(QWidget):
         return self._level
 
     def paintEvent(self, _event) -> None:  # noqa: N802
+        if theme.P.console:
+            self._paint_leds()
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect())
@@ -103,6 +112,21 @@ class LevelMeter(QWidget):
             grad.setColorAt(1.0, theme.P.hot)
             p.setBrush(grad)
             p.drawRoundedRect(fill, radius, radius)
+
+    def _paint_leds(self) -> None:
+        """A row of LEDs like a mixing desk: green, then yellow, then red."""
+        p = QPainter(self)
+        h = self.height()
+        seg = max(2.0, h * 0.75)
+        gap = max(1.0, h * 0.35)
+        count = max(1, int((self.width() + gap) // (seg + gap)))
+        lit = round(self._level * count)
+        for i in range(count):
+            frac = (i + 1) / count
+            color = QColor(theme.LED_GREEN if frac <= 0.7 else theme.LED_YELLOW if frac <= 0.9 else theme.LED_RED)
+            if i >= lit:
+                color.setAlpha(34)
+            p.fillRect(QRectF(i * (seg + gap), 0, seg, h), color)
 
 
 class VolumeSlider(QSlider):
@@ -197,7 +221,7 @@ class VolumeRow(QFrame):
         self.percent.setObjectName("Percent")
         self.percent.setFixedWidth(px(26))
         self.percent.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.meter = LevelMeter(px(2.5))
+        self.meter = LevelMeter(meter_height(2.5))
 
         head = QHBoxLayout()
         head.setSpacing(px(6))
@@ -302,7 +326,7 @@ class MasterCard(QWidget):
         self.slider = VolumeSlider()
         self.slider.setObjectName("MasterSlider")
         self.slider.valueChanged.connect(self._on_slider)
-        self.meter = LevelMeter(px(3.5))
+        self.meter = LevelMeter(meter_height(3.5))
 
         top = QHBoxLayout()
         top.setSpacing(px(4))

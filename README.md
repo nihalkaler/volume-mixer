@@ -28,10 +28,38 @@ same themes, same placements, same right-click menu, so the two look like a set.
   always on top
 - **Runs all the time**: starts with Windows, sits in the tray, and has no
   taskbar button
-- **Dark, Light, Cyberpunk and Tactical themes**, four sizes, and your own
-  accent colour
+- **Extra small: two dials**. Pick a device from one dropdown and an app from
+  the other, and turn each one with its own knob
+- **Dark, Light, Cyberpunk, Tactical and Sound board themes**, five sizes, and
+  your own accent colour
 
 ![Light, Cyberpunk and Tactical themes](docs/themes.png)
+
+**Sound board** looks like a mixing desk: a brushed-metal panel with a screw
+in each corner, metal fader caps, and LED meters that go green, yellow, red.
+
+![Sound board theme](docs/soundboard.png)
+
+## Extra small: the dials
+
+Right-click → **Size** → **Extra small (dials)** shrinks the widget to two
+knobs:
+
+![The dials in every theme](docs/dials.png)
+
+- **Device** (left): pick a speaker, headphones or microphone from the
+  dropdown. **Default output** follows whichever device Windows is using, so
+  out of the box this dial is the master volume.
+- **App** (right): pick any app that's playing sound. If that app closes, the
+  dial shows another one meanwhile and switches back when your app starts
+  playing again.
+- Turn a knob by dragging up (louder) or down (quieter), or with the scroll
+  wheel. The speaker icon under each knob mutes it, and the LED bar shows how
+  loud it is right now.
+- The little arrow top-right, or any other size in the menu, brings back the
+  full mixer.
+
+Your picks are remembered, also across restarts.
 
 ## Getting it
 
@@ -55,6 +83,8 @@ icon, and turns on **Start with Windows**.
 | Show just the master volume | Click the arrow top-right, or right-click → **Master volume only** |
 | Keep it behind windows, normal, or on top | Right-click → **Placement** |
 | Change the size or theme | Right-click → **Size** / **Theme** |
+| Switch to the two dials | Right-click → **Size** → **Extra small (dials)** |
+| Turn a dial | Drag up or down on it, or scroll over it |
 | Reach the menu when the widget is covered | Click the icon in the system tray |
 | Open the Windows sound settings | Right-click → **Windows sound settings…** |
 
@@ -71,7 +101,7 @@ Right-click → **Edit settings file…** opens it in Notepad, and changes appea
 within a second of saving:
 
 ```toml
-theme = "dark"        # dark | light | cyberpunk | tactical
+theme = "dark"        # dark | light | cyberpunk | tactical | soundboard
 size = 50             # 30 to 100: 50 is normal, 100 is twice as big
 layer = "desktop"     # desktop | normal | top
 locked = false        # true stops the widget being dragged
@@ -79,6 +109,10 @@ opacity = 0.85        # background, 0.3 to 1.0
 tab = "devices"       # devices | apps
 compact = false       # true shows the master volume only
 accent = "#2EC4B6"    # optional: your own accent colour
+
+view = "panel"        # panel | dials (dials is the Extra small size)
+dial_device = "default"   # what the device dial controls; "default" follows Windows
+dial_app = "spotify.exe"  # what the app dial controls
 ```
 
 If the file has a mistake, the widget tells you what's wrong and keeps using
@@ -120,7 +154,7 @@ The file appears in `dist\VolumeMixer.exe`.
 
 GitHub Actions (`.github/workflows/build.yml`) runs the tests and builds the
 .exe on every push. To publish a download, create a release on GitHub with a
-new tag such as `v2.1.0`; the workflow attaches `VolumeMixer.exe` to it a
+new tag such as `v1.2.0`; the workflow attaches `VolumeMixer.exe` to it a
 couple of minutes later.
 
 ## Tests
@@ -131,8 +165,9 @@ python -m pytest -q tests
 
 The tests drive the real widget against the demo audio backend, so they run on
 any OS without a sound card. They cover the volume controls, every theme,
-sizes, dragging and locking, compact mode, and the settings file (including
-mistakes in it).
+sizes, the dials (picking devices and apps, turning knobs, apps closing and
+coming back), dragging and locking, compact mode, and the settings file
+(including mistakes in it).
 
 ## How it works
 
@@ -141,8 +176,9 @@ mistakes in it).
 | `src/volume_mixer/window.py` | The widget: borderless see-through panel (drawn per theme, with shadow, scanlines, hatching and corner brackets), dragging, the right-click and tray menu, settings changes, and the refresh timers |
 | `src/volume_mixer/desktop.py` | Windows integration through `ctypes`: placement layers, bringing the widget forward on Win+D (a foreground-window hook, as in the clock), not stealing focus, and Start with Windows (registry `Run` key) |
 | `src/volume_mixer/windows_audio.py` | Windows Core Audio via [pycaw](https://github.com/AndreMiras/pycaw): devices, per-app sessions, level meters, and `IPolicyConfig` for the default device |
-| `src/volume_mixer/widgets.py` | Master volume card, volume rows, level meters, sliders |
-| `src/volume_mixer/theme.py` | The four themes (the World Clock Widget's colours) and the size-aware stylesheet |
+| `src/volume_mixer/widgets.py` | Master volume card, volume rows, level meters (bars, or LEDs on the sound board), sliders |
+| `src/volume_mixer/dials.py` | The Extra small view: knobs drawn per theme (knurled desk knobs on the sound board, faceted ones on the HUD themes), and the device and app dropdowns |
+| `src/volume_mixer/theme.py` | The five themes (four share the World Clock Widget's colours) and the size-aware stylesheet, including the sound board's fader caps |
 | `src/volume_mixer/config.py` | Settings: TOML load/save, defaults, and keeping values in range |
 | `src/volume_mixer/icons.py` | Icons drawn in code in the theme's colours |
 | `src/volume_mixer/demo_audio.py` | Pretend audio system for `--demo` and the tests |
