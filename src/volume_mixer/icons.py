@@ -109,6 +109,33 @@ def chevron(size: int, up: bool) -> QIcon:
     return QIcon(pm)
 
 
+def knob(size: int) -> QIcon:
+    """A small dial: a ring with a pointer (the "switch to dials" button)."""
+    pm, p = _canvas(size)
+    s = size / 24.0
+    p.setPen(_pen(theme.P.muted, 1.8 * s))
+    p.setBrush(Qt.NoBrush)
+    p.drawArc(QRectF(4 * s, 4 * s, 16 * s, 16 * s), 225 * 16, -270 * 16)
+    p.drawLine(QPointF(12 * s, 12 * s), QPointF(15.8 * s, 8.2 * s))
+    p.end()
+    return QIcon(pm)
+
+
+def faders(size: int) -> QIcon:
+    """Three mixer faders (the "switch to the full mixer" button)."""
+    pm, p = _canvas(size)
+    s = size / 24.0
+    pen = _pen(theme.P.muted, 1.8 * s)
+    for x, knob_y in ((6.5, 14.5), (12, 8.5), (17.5, 12)):
+        p.setPen(pen)
+        p.drawLine(QPointF(x * s, 4.5 * s), QPointF(x * s, 19.5 * s))
+        p.setPen(Qt.NoPen)
+        p.setBrush(theme.P.muted)
+        p.drawRoundedRect(QRectF((x - 2.4) * s, (knob_y - 1.6) * s, 4.8 * s, 3.2 * s), 1.2 * s, 1.2 * s)
+    p.end()
+    return QIcon(pm)
+
+
 def bell(size: int) -> QIcon:
     pm, p = _canvas(size)
     s = size / 24.0

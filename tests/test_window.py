@@ -280,28 +280,60 @@ def test_clamp_percent():
 
 # ---- Extra small: the dials view ------------------------------------------------
 def _dials(w):
-    w.set_size("dials")
+    w.set_mode("dials")
     assert w.dials is not None
     return w.dials
 
 
-def test_extra_small_turns_into_dials(window, store):
-    w, _ = window
-    full_width = w.width()
-    _dials(w)
-    assert store.config.view == "dials"
-    assert w.width() < full_width
-    # back to the full mixer at the size it had before
-    w.set_size(store.config.size)
-    assert w.dials is None and store.config.view == "panel"
-    assert not w.master.isHidden()
-
-
-def test_size_menu_offers_extra_small(window):
-    w, _ = window
+def _submenu(w, title):
     w._fill_menu()
-    size_menu = next(a.menu() for a in w.menu.actions() if a.text() == "Size")
-    assert [a.text() for a in size_menu.actions()][0] == "Extra small (dials)"
+    return next(a.menu() for a in w.menu.actions() if a.text() == title)
+
+
+def test_switching_between_default_and_dials_modes(window, store):
+    w, _ = window
+    _dials(w)
+    assert store.config.mode == "dials"
+    w.dials.expand_btn.click()  # the faders button goes back to the full mixer
+    assert w.dials is None and store.config.mode == "default"
+    assert not w.master.isHidden()
+    w.master.dials_btn.click()  # and the knob button goes to dials
+    assert w.dials is not None
+
+
+def test_mode_menu(window):
+    w, _ = window
+    mode = _submenu(w, "Mode")
+    assert [a.text() for a in mode.actions()] == ["Default (full mixer)", "Dials"]
+    assert mode.actions()[0].isChecked()
+    mode.actions()[1].trigger()
+    assert w.dials is not None
+
+
+def test_each_mode_has_its_own_sizes(window, store):
+    w, _ = window
+    assert "Extra small" not in [a.text() for a in _submenu(w, "Size").actions()]
+    w.set_size(65)  # Large full mixer
+    _dials(w)
+    sizes = [a.text() for a in _submenu(w, "Size").actions()]
+    assert sizes == ["Extra small", "Small", "Normal", "Large", "Extra large"]
+    knob_sizes = []
+    for value, _label in theme.DIAL_SIZES:
+        w.set_size(value)
+        knob_sizes.append(w.dials.device_col.knob.width())
+    assert knob_sizes == sorted(knob_sizes) and len(set(knob_sizes)) == len(knob_sizes)
+    assert store.config.dial_size == theme.DIAL_SIZES[-1][0]
+    assert store.config.size == 65  # the full mixer kept its own size
+    w.set_mode("default")
+    assert theme.S == theme.scale_for(65)
+
+
+def test_master_volume_only_is_for_default_mode(window):
+    w, _ = window
+    _dials(w)
+    w._fill_menu()
+    compact = next(a for a in w.menu.actions() if a.text() == "Master volume only")
+    assert not compact.isEnabled()
 
 
 def test_device_dial_starts_on_the_default_output(window):

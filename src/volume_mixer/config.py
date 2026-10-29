@@ -12,7 +12,7 @@ import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-from .theme import MAX_SIZE, MIN_SIZE, THEMES
+from .theme import DIAL_SIZES, MAX_SIZE, MIN_SIZE, THEMES
 
 LAYERS = ("desktop", "normal", "top")
 LAYER_NAMES = {
@@ -21,7 +21,8 @@ LAYER_NAMES = {
     "top": "Always on top",
 }
 TABS = ("devices", "apps")
-VIEWS = ("panel", "dials")  # dials = the Extra small size
+MODES = ("default", "dials")
+MODE_NAMES = {"default": "Default (full mixer)", "dials": "Dials"}
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -39,7 +40,8 @@ class Config:
     tab: str = "devices"
     compact: bool = False
     accent: str | None = None  # e.g. "#2EC4B6"; None uses the theme's accent
-    view: str = "panel"  # "dials" is the Extra small size
+    mode: str = "default"  # default (full mixer) | dials
+    dial_size: int = 50  # size of the dials mode, kept separately from `size`
     dial_device: str = "default"  # what the device dial controls
     dial_app: str | None = None  # what the app dial controls
     x: int | None = None  # widget position; None = not placed yet
@@ -58,7 +60,8 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
         cfg = cls()
-        known = {f.name for f in fields(cls)} - {"extra"}
+        # `view` was the name of `mode` in version 2.0.0; still read it.
+        known = ({f.name for f in fields(cls)} - {"extra"}) | {"view"}
 
         def need(key, kinds, what):
             value = data[key]
@@ -99,11 +102,17 @@ class Config:
             if v and not _HEX.match(v):
                 raise ConfigError(f'`accent` should be a colour like "#2EC4B6", not {v!r}.')
             cfg.accent = v or None
-        if "view" in data:
+        if "view" in data and "mode" not in data:
             v = str(need("view", (str,), "panel or dials")).lower()
-            if v not in VIEWS:
-                raise ConfigError(f"`view` should be panel or dials, not {v!r}.")
-            cfg.view = v
+            cfg.mode = "dials" if v == "dials" else "default"
+        if "mode" in data:
+            v = str(need("mode", (str,), "default or dials")).lower()
+            if v not in MODES:
+                raise ConfigError(f"`mode` should be default or dials, not {v!r}.")
+            cfg.mode = v
+        if "dial_size" in data:
+            low, high = DIAL_SIZES[0][0], MAX_SIZE
+            cfg.dial_size = int(max(low, min(high, need("dial_size", (int, float), "a number"))))
         if "dial_device" in data:
             cfg.dial_device = need("dial_device", (str,), "a device") or "default"
         if "dial_app" in data:
@@ -120,8 +129,10 @@ class Config:
         lines = [
             "# Volume Mixer widget settings. Changes appear within a second of saving.",
             "",
+            f"mode = {q(self.mode):<16}# default (full mixer) | dials",
             f"theme = {q(self.theme):<15}# dark | light | cyberpunk | tactical | soundboard",
-            f"size = {self.size:<16}# {MIN_SIZE} to {MAX_SIZE}: 50 is normal, 100 is twice as big",
+            f"size = {self.size:<16}# default mode, {MIN_SIZE} to {MAX_SIZE}: 50 is normal, 100 is twice as big",
+            f"dial_size = {self.dial_size:<11}# dials mode, {DIAL_SIZES[0][0]} to {MAX_SIZE}: 50 is normal",
             f"layer = {q(self.layer):<15}# desktop | normal | top",
             f"locked = {str(self.locked).lower():<14}# true stops the widget being dragged",
             f"opacity = {self.opacity:<13g}# background, 0.3 to 1.0",
@@ -134,8 +145,7 @@ class Config:
             lines.append('# accent = "#2EC4B6"   # uncomment for your own accent colour')
         lines += [
             "",
-            "# Extra small size: two dials instead of the full mixer.",
-            f"view = {q(self.view):<16}# panel | dials",
+            "# What the two dials control in dials mode.",
             f"dial_device = {q(self.dial_device)}   # \"default\" follows the Windows default output",
         ]
         if self.dial_app:

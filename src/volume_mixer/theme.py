@@ -26,11 +26,11 @@ THEME_NAMES = {
     "soundboard": "Sound board",
 }
 
-# Size presets, on the clock's 1-100 scale where 50 is normal. "Extra small"
-# isn't a number: it switches the widget to two dials (see dials.py).
+# Size presets, on the clock's 1-100 scale where 50 is normal.
 SIZES = ((40, "Small"), (50, "Normal"), (65, "Large"), (80, "Extra large"))
+# The dials stay readable smaller than the full mixer, so they go one size lower.
+DIAL_SIZES = ((35, "Extra small"), (42, "Small"), (50, "Normal"), (62, "Large"), (75, "Extra large"))
 MIN_SIZE, MAX_SIZE = 30, 100
-DIALS_SCALE = 0.85  # text size in the Extra small (dials) view
 
 
 def scale_for(size: int) -> float:
