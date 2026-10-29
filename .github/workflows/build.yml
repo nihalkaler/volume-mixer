@@ -48,6 +48,26 @@ jobs:
       - name: Build VolumeMixer.exe
         run: pyinstaller VolumeMixer.spec --noconfirm
 
+      # The build machine has no sound card. A virtual one (VB-Audio Cable,
+      # installed on this throwaway machine only) and an app playing a sound
+      # let the self-test exercise the device and app controls for real.
+      - name: Add a virtual sound card
+        continue-on-error: true
+        uses: LABSN/sound-ci-helpers@d08c889a7bba7d9b1b059f8f76dac4672ea3a9cf # v1.0.4
+
+      - name: Play a sound in the background
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Start-Service audiosrv -ErrorAction SilentlyContinue
+          $wav = Get-ChildItem "$env:WINDIR\Media\*.wav" | Select-Object -First 1
+          if ($wav) {
+            $cmd = "`$p = New-Object System.Media.SoundPlayer '$($wav.FullName)'; `$p.PlayLooping(); Start-Sleep 300"
+            Start-Process pwsh -ArgumentList "-NoProfile", "-Command", $cmd -WindowStyle Hidden
+            Start-Sleep 3
+            Write-Output "Playing $($wav.Name)"
+          }
+
       - name: Self-test the exe on Windows
         shell: pwsh
         timeout-minutes: 5
@@ -58,8 +78,10 @@ jobs:
           else { $lines = @("Self-test FAILED", "ERROR: the exe wrote no result (exit code $($p.ExitCode))") }
           $lines | ForEach-Object { Write-Output $_ }
           $size = [math]::Round((Get-Item "dist\VolumeMixer.exe").Length / 1MB, 1)
-          $audio = ($lines | Where-Object { $_ -match '^INFO: \d+ output' } | Select-Object -First 1) -replace '^INFO: ', ''
-          Write-Output "::notice title=Self-test::$($lines[0]) | exe $size MB | $audio"
+          $audio = ($lines | Where-Object { $_ -match '^INFO: \d+ (output|app)' }) -replace '^INFO: ', '' -join ' | '
+          $passed = @($lines | Where-Object { $_ -like 'INFO: ok:*' }).Count
+          $skipped = ($lines | Where-Object { $_ -match 'not checked' }) -replace '^(INFO|WARNING): ', '' -join ' | '
+          Write-Output "::notice title=Self-test::$($lines[0]) | $passed checks passed | exe $size MB | $audio | $skipped"
           function Escape($t) { $t -replace '%', '%25' }
           $lines | Where-Object { $_ -like 'ERROR:*' } | Select-Object -First 9 |
             ForEach-Object { Write-Output "::error title=Self-test::$(Escape $_)" }
