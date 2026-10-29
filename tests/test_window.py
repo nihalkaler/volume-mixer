@@ -436,7 +436,7 @@ def test_knob_turns_with_wheel_and_drag(window, qapp):
 def test_refresh_does_not_fight_a_turning_knob(window):
     w, backend = window
     knob = _dials(w).device_col.knob
-    knob._drag = (QPointF(0, 0), knob.value())
+    knob._drag = ("angle", None, None)
     backend.devices["spk"].volume = 3
     w.refresh()
     assert knob.value() != 3
@@ -462,3 +462,92 @@ def test_soundboard_meters_are_leds(window):
     w.show_widget()
     w.update_meters()
     assert not w.master.meter.grab().isNull()
+
+
+# ---- turning a dial precisely -------------------------------------------------------
+def _knob_event(knob, kind, local: QPointF, modifiers=Qt.NoModifier):
+    g = QPointF(knob.mapToGlobal(local.toPoint()))
+    QApplication.sendEvent(knob, QMouseEvent(kind, local, g, Qt.LeftButton,
+                                             Qt.LeftButton if kind != QMouseEvent.MouseButtonRelease else Qt.NoButton,
+                                             modifiers))
+
+
+def _on_scale(knob, value: int) -> QPointF:
+    """The point on the knob's scale for a volume."""
+    import math
+
+    from volume_mixer.dials import START, SWEEP
+
+    _, c, radius, _ = knob._geometry()
+    a = math.radians(START - SWEEP * value / 100)
+    return QPointF(c.x() + math.cos(a) * radius, c.y() - math.sin(a) * radius)
+
+
+@pytest.mark.parametrize("target", [0, 10, 25, 50, 64, 83, 100])
+def test_clicking_the_scale_jumps_to_that_volume(window, target):
+    w, backend = window
+    knob = _dials(w).device_col.knob
+    w.show_widget()
+    _knob_event(knob, QMouseEvent.MouseButtonPress, _on_scale(knob, target))
+    _knob_event(knob, QMouseEvent.MouseButtonRelease, _on_scale(knob, target))
+    assert abs(knob.value() - target) <= 1
+    assert backend.devices["spk"].volume == knob.value()
+
+
+def test_dragging_follows_the_mouse_round_the_dial(window):
+    w, backend = window
+    knob = _dials(w).app_col.knob
+    w.show_widget()
+    _knob_event(knob, QMouseEvent.MouseButtonPress, _on_scale(knob, 20))
+    for v in (30, 45, 60, 75):
+        _knob_event(knob, QMouseEvent.MouseMove, _on_scale(knob, v))
+        assert abs(knob.value() - v) <= 1
+    _knob_event(knob, QMouseEvent.MouseButtonRelease, _on_scale(knob, 75))
+    assert backend.apps[w.dials.shown_app].volume == knob.value()
+
+
+def test_dragging_past_the_end_does_not_wrap_round(window):
+    w, _ = window
+    knob = _dials(w).device_col.knob
+    w.show_widget()
+    _, c, radius, _ = knob._geometry()
+    _knob_event(knob, QMouseEvent.MouseButtonPress, _on_scale(knob, 95))
+    # carry on clockwise, through the gap at the bottom, to where 5% would be
+    _knob_event(knob, QMouseEvent.MouseMove, QPointF(c.x(), c.y() + radius))
+    _knob_event(knob, QMouseEvent.MouseMove, _on_scale(knob, 5))
+    assert knob.value() == 100
+    _knob_event(knob, QMouseEvent.MouseButtonRelease, _on_scale(knob, 5))
+
+
+def test_shift_drag_is_fine(window):
+    w, _ = window
+    knob = _dials(w).device_col.knob
+    w.show_widget()
+    start = knob.value()
+    p = _on_scale(knob, 80)
+    _knob_event(knob, QMouseEvent.MouseButtonPress, p, Qt.ShiftModifier)
+    assert knob.value() == start  # Shift doesn't jump
+    _knob_event(knob, QMouseEvent.MouseMove, p - QPointF(0, 10), Qt.ShiftModifier)
+    assert knob.value() == start + 2  # 10px up = 2 points
+    _knob_event(knob, QMouseEvent.MouseButtonRelease, p - QPointF(0, 10), Qt.ShiftModifier)
+
+
+def test_hover_shows_where_a_click_would_go(window):
+    w, _ = window
+    knob = _dials(w).device_col.knob
+    w.show_widget()
+    QApplication.sendEvent(knob, QMouseEvent(QMouseEvent.MouseMove, _on_scale(knob, 30),
+                                             QPointF(knob.mapToGlobal(_on_scale(knob, 30).toPoint())),
+                                             Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    assert abs(knob._hover - 30) <= 1
+    assert not knob.grab().isNull()
+
+
+def test_value_at_angle():
+    from volume_mixer.dials import value_at_angle
+
+    assert value_at_angle(225) == 0  # bottom-left
+    assert value_at_angle(90) == 50  # top
+    assert value_at_angle(-45) == 100  # bottom-right
+    assert value_at_angle(-60) == 100  # in the gap, nearer the full end
+    assert value_at_angle(240) == 0  # in the gap, nearer the empty end

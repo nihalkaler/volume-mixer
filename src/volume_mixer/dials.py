@@ -1,10 +1,12 @@
-"""The Extra small view: two dials side by side.
+"""Dials mode: two dials side by side.
 
 The left dial controls a device picked from its dropdown ("Default" follows
 whichever output Windows is using, so out of the box it's the master
 volume). The right dial controls an app picked from its dropdown.
 
-Turn a dial by dragging up/down (or left/right) or with the scroll wheel.
+Click anywhere on a dial's scale and it jumps to that volume; drag around
+the dial and it follows the mouse. The scroll wheel moves it 2% a notch
+(1% with Shift), and Shift-dragging moves it in fine steps.
 """
 
 from __future__ import annotations
@@ -34,7 +36,22 @@ from .widgets import LevelMeter, caps_label, icon_button, meter_height
 DEFAULT_DEVICE = "default"  # the dial follows the Windows default output
 SWEEP = 270.0  # degrees from 0% to 100%
 START = 225.0  # angle of 0% (bottom-left), counter-clockwise from 3 o'clock
-DRAG_PER_PIXEL = 0.5  # volume points per pixel of mouse movement
+DRAG_PER_PIXEL = 0.5  # dragging from the centre: volume points per pixel
+FINE_PER_PIXEL = 0.2  # Shift-dragging: fine steps
+HUB = 0.22  # pressing inside this share of the radius drags instead of jumping
+
+
+def value_at_angle(degrees_ccw: float) -> int:
+    """The volume shown at an angle (counter-clockwise from 3 o'clock).
+
+    Angles in the open gap at the bottom go to the nearer end of the scale.
+    """
+    travelled = (START - degrees_ccw) % 360  # clockwise from the 0% end
+    if travelled <= SWEEP:
+        return round(travelled / SWEEP * 100)
+    past_full = travelled - SWEEP  # into the gap from the 100% end
+    before_empty = 360 - travelled  # into the gap from the 0% end
+    return 100 if past_full < before_empty else 0
 
 
 class Knob(QWidget):
@@ -46,10 +63,15 @@ class Knob(QWidget):
         super().__init__()
         self.setFixedSize(diameter, diameter)
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Drag up or down, or scroll, to change the volume")
+        self.setMouseTracking(True)  # for the hover marker
+        self.setToolTip("Click or drag around the dial to set the volume.\nScroll, or hold Shift, for fine steps.")
         self._value = 0
         self._muted = False
-        self._drag: tuple[QPointF, int] | None = None
+        # While the button is down: ("angle", None, None) follows the mouse
+        # round the dial; ("relative", start position, start value) moves by
+        # how far the mouse has travelled.
+        self._drag: tuple[str, QPointF | None, int | None] | None = None
+        self._hover: int | None = None  # where a click would set the dial
 
     # ---- value -----------------------------------------------------------
     def value(self) -> int:
@@ -77,22 +99,61 @@ class Knob(QWidget):
     def is_dragging(self) -> bool:
         return self._drag is not None
 
+    # ---- geometry ----------------------------------------------------------
+    def _geometry(self) -> tuple[float, QPointF, float, float]:
+        """(side, centre, radius of the scale, width of the scale)."""
+        side = min(self.width(), self.height())
+        c = QPointF(self.width() / 2, self.height() / 2)
+        arc_w = side * 0.065
+        radius = side / 2 - arc_w * (1.6 if theme.P.glow else 0.8)
+        return side, c, radius, arc_w
+
+    def value_at(self, pos: QPointF) -> int | None:
+        """Volume under a point on the dial, or None right in the middle,
+        where the direction is too unclear to jump to."""
+        _, c, radius, _ = self._geometry()
+        dx, dy = pos.x() - c.x(), c.y() - pos.y()
+        if math.hypot(dx, dy) < radius * HUB:
+            return None
+        return value_at_angle(math.degrees(math.atan2(dy, dx)))
+
     # ---- mouse -----------------------------------------------------------
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton and self.isEnabled():
-            self._drag = (event.globalPosition(), self._value)
-            event.accept()
+        if event.button() != Qt.LeftButton or not self.isEnabled():
+            event.ignore()
             return
-        event.ignore()
+        target = self.value_at(event.position())
+        if event.modifiers() & Qt.ShiftModifier or target is None:
+            self._drag = ("relative", event.globalPosition(), self._value)
+        else:
+            self._drag = ("angle", None, None)
+            self.setValue(target)  # jump straight to where you clicked
+        self._hover = None
+        self.update()
+        event.accept()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._drag is None:
+            hover = self.value_at(event.position()) if self.isEnabled() else None
+            if hover != self._hover:
+                self._hover = hover
+                self.update()
             event.ignore()
             return
-        start, start_value = self._drag
-        delta = event.globalPosition() - start
-        # Up or right turns it up; down or left turns it down.
-        self.setValue(start_value + (delta.x() - delta.y()) * DRAG_PER_PIXEL)
+        mode, start, start_value = self._drag
+        if mode == "relative":
+            # Up or right turns it up; down or left turns it down.
+            per_pixel = FINE_PER_PIXEL if event.modifiers() & Qt.ShiftModifier else DRAG_PER_PIXEL
+            delta = event.globalPosition() - start
+            self.setValue(start_value + (delta.x() - delta.y()) * per_pixel)
+        else:
+            target = self.value_at(event.position())
+            if target is not None:
+                # Never leap across the gap at the bottom: from near 100%,
+                # carrying on past the end stays at 100% (and the same at 0%).
+                if abs(target - self._value) > 50:
+                    target = 100 if self._value > 50 else 0
+                self.setValue(target)
         event.accept()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -102,6 +163,12 @@ class Knob(QWidget):
             return
         event.ignore()
 
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if self._hover is not None:
+            self._hover = None
+            self.update()
+        super().leaveEvent(event)
+
     def wheelEvent(self, event) -> None:  # noqa: N802
         if not self.isEnabled():
             event.ignore()
@@ -109,7 +176,8 @@ class Knob(QWidget):
         delta = event.angleDelta()
         steps = (delta.y() or delta.x()) / 120
         if steps:
-            self.setValue(self._value + round(steps * 2) or (1 if steps > 0 else -1))
+            per_notch = 1 if event.modifiers() & Qt.ShiftModifier else 2
+            self.setValue(self._value + (round(steps * per_notch) or (1 if steps > 0 else -1)))
         event.accept()
 
     # ---- drawing -----------------------------------------------------------
@@ -120,10 +188,7 @@ class Knob(QWidget):
         if not self.isEnabled():
             painter.setOpacity(0.4)
 
-        side = min(self.width(), self.height())
-        c = QPointF(self.width() / 2, self.height() / 2)
-        arc_w = side * 0.065
-        radius = side / 2 - arc_w * (1.6 if p.glow else 0.8)
+        side, c, radius, arc_w = self._geometry()
         arc_rect = QRectF(c.x() - radius, c.y() - radius, 2 * radius, 2 * radius)
         body_r = radius * 0.64
         fraction = self._value / 100
@@ -142,6 +207,17 @@ class Knob(QWidget):
                     painter.drawArc(arc_rect, round(START * 16), round(-SWEEP * fraction * 16))
             painter.setPen(QPen(fill, arc_w, Qt.SolidLine, Qt.FlatCap if p.hud else Qt.RoundCap))
             painter.drawArc(arc_rect, round(START * 16), round(-SWEEP * fraction * 16))
+
+        if self._hover is not None and self._drag is None and self._hover != self._value:
+            # A faint dot where a click would set the dial.
+            a = math.radians(START - SWEEP * self._hover / 100)
+            dot = QColor(p.strong)
+            dot.setAlphaF(0.55)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(dot)
+            painter.drawEllipse(QPointF(c.x() + math.cos(a) * radius, c.y() - math.sin(a) * radius),
+                                arc_w * 0.62, arc_w * 0.62)
+            painter.setBrush(Qt.NoBrush)
 
         if p.console:  # printed scale marks, 0 to 10
             painter.setPen(QPen(QColor(p.muted), max(1.0, side * 0.012)))
