@@ -25,7 +25,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +32,7 @@ from PySide6.QtWidgets import (
 from . import icons, theme
 from .models import INPUT, OUTPUT, AppInfo, DeviceInfo
 from .theme import px
-from .widgets import LevelMeter, caps_label, icon_button, meter_height
+from .widgets import ARROW_STEP, LevelMeter, WheelSteps, caps_label, icon_button, meter_height, step_button
 
 DEFAULT_DEVICE = "default"  # the dial follows the Windows default output
 SWEEP = 270.0  # degrees from 0% to 100%
@@ -41,9 +40,6 @@ START = 225.0  # angle of 0% (bottom-left), counter-clockwise from 3 o'clock
 DRAG_PER_PIXEL = 0.5  # dragging from the centre: volume points per pixel
 FINE_PER_PIXEL = 0.2  # Shift-dragging: fine steps
 HUB = 0.22  # pressing inside this share of the radius drags instead of jumping
-ARROW_STEP = 1  # volume points per arrow click
-ARROW_REPEAT_DELAY_MS = 350  # hold an arrow this long and it starts repeating...
-ARROW_REPEAT_MS = 45  # ...this often
 
 
 def value_at_angle(degrees_ccw: float) -> int:
@@ -77,6 +73,7 @@ class Knob(QWidget):
         # how far the mouse has travelled.
         self._drag: tuple[str, QPointF | None, int | None] | None = None
         self._hover: int | None = None  # where a click would set the dial
+        self._wheel = WheelSteps()
 
     # ---- value -----------------------------------------------------------
     def value(self) -> int:
@@ -178,11 +175,9 @@ class Knob(QWidget):
         if not self.isEnabled():
             event.ignore()
             return
-        delta = event.angleDelta()
-        steps = (delta.y() or delta.x()) / 120
+        steps = self._wheel.steps(event)
         if steps:
-            per_notch = 1 if event.modifiers() & Qt.ShiftModifier else 2
-            self.setValue(self._value + (round(steps * per_notch) or (1 if steps > 0 else -1)))
+            self.setValue(self._value + steps)
         event.accept()
 
     # ---- drawing -----------------------------------------------------------
@@ -372,17 +367,6 @@ class ThemedCombo(QComboBox):
         painter.drawPolyline([QPointF(cx - w, cy - w / 2), QPointF(cx, cy + w / 2), QPointF(cx + w, cy - w / 2)])
 
 
-def step_button(up: bool) -> QToolButton:
-    """An arrow that turns the dial up or down a step, repeating while held."""
-    btn = icon_button("Turn up 1%" if up else "Turn down 1%", px(20))
-    btn.setIcon(icons.step_arrow(px(20), up=up))
-    btn.setFixedSize(px(24), px(24))
-    btn.setAutoRepeat(True)
-    btn.setAutoRepeatDelay(ARROW_REPEAT_DELAY_MS)
-    btn.setAutoRepeatInterval(ARROW_REPEAT_MS)
-    return btn
-
-
 class DialColumn(QWidget):
     """Label, dropdown, knob with step arrows, and a mute button with a
     level meter."""
@@ -392,6 +376,7 @@ class DialColumn(QWidget):
 
     def __init__(self, title: str):
         super().__init__()
+        self._shown: tuple | None = None
         self.header = QHBoxLayout()
         self.header.setContentsMargins(0, 0, 0, 0)
         self.header.setSpacing(px(2))
@@ -438,18 +423,20 @@ class DialColumn(QWidget):
             self.knob.setValue(self.knob.value() + amount)
 
     def show_state(self, volume: int, muted: bool, is_input: bool, enabled: bool = True) -> None:
-        self.knob.setEnabled(enabled)
-        self.mute_btn.setEnabled(enabled)
-        self.down_btn.setEnabled(enabled)
-        self.up_btn.setEnabled(enabled)
+        for control in (self.knob, self.mute_btn, self.down_btn, self.up_btn):
+            control.setEnabled(enabled)
         self.knob.set_value_quietly(volume)
         self.knob.set_muted(muted)
+        if not enabled:
+            self.meter.set_level(0)
+        icon_key = (self.knob.value(), muted, is_input)
+        if icon_key == self._shown:
+            return  # same icon as before: skip redrawing it
+        self._shown = icon_key
         size = px(15)
         shown = self.knob.value()
         self.mute_btn.setIcon(icons.microphone(size, muted) if is_input else icons.speaker_for(shown, muted, size))
         self.mute_btn.setToolTip("Unmute" if muted else "Mute")
-        if not enabled:
-            self.meter.set_level(0)
 
 
 class DialsView(QWidget):

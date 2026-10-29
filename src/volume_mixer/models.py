@@ -60,6 +60,10 @@ class AudioBackend(Protocol):
 
     def device_peak(self, device_id: str) -> float: ...
 
+    def device_state(self, device_id: str) -> tuple[int, bool] | None:
+        """(volume, muted) of one device, cheaply; None if it's gone."""
+        ...
+
     # ---- applications ----------------------------------------------------
     def list_apps(self) -> list[AppInfo]: ...
 
@@ -68,6 +72,10 @@ class AudioBackend(Protocol):
     def set_app_mute(self, key: str, muted: bool) -> None: ...
 
     def app_peak(self, key: str) -> float: ...
+
+    def app_state(self, key: str) -> tuple[int, bool] | None:
+        """(volume, muted) of one app, cheaply; None if it's gone."""
+        ...
 
 
 def clamp_percent(value: float) -> int:

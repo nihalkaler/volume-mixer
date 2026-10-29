@@ -72,6 +72,10 @@ class DemoAudioBackend:
             for app in self.apps.values():
                 app.devices = [target.name]
 
+    def device_state(self, device_id: str) -> tuple[int, bool] | None:
+        d = self.devices.get(device_id)
+        return (d.volume, d.muted) if d else None
+
     def device_peak(self, device_id: str) -> float:
         d = self.devices.get(device_id)
         if d is None or d.muted:
@@ -91,6 +95,10 @@ class DemoAudioBackend:
     def set_app_mute(self, key: str, muted: bool) -> None:
         if key in self.apps:
             self.apps[key].muted = bool(muted)
+
+    def app_state(self, key: str) -> tuple[int, bool] | None:
+        a = self.apps.get(key)
+        return (a.volume, a.muted) if a else None
 
     def app_peak(self, key: str) -> float:
         a = self.apps.get(key)

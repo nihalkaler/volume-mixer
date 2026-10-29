@@ -6,6 +6,8 @@ these after ``theme.use(...)`` gives the chosen theme and size.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter
 from PySide6.QtWidgets import (
@@ -34,6 +36,48 @@ def caps_label(text: str, name: str) -> QLabel:
     font.setLetterSpacing(QFont.AbsoluteSpacing, 1.6 * theme.S if printed else 1.1 * theme.S)
     label.setFont(font)
     return label
+
+
+# ---- the mouse wheel ---------------------------------------------------------
+WHEEL_STEP = 2  # volume points per wheel notch...
+WHEEL_STEP_FINE = 1  # ...or with Shift held
+NOTCH = 120  # angleDelta of one wheel notch; touchpads send it in small pieces
+
+# When a list scrolls, the rows slide under the mouse. Without care, the
+# next wheel turn would land on a slider and change a volume when you only
+# meant to scroll. Sliders in a list therefore leave the wheel to the list
+# while it's scrolling, and for a moment after the mouse arrives on them.
+LIST_SCROLL_GRACE = 0.5  # seconds after the list last moved
+HOVER_SETTLE = 0.3  # seconds the mouse must rest on a slider first
+_last_list_scroll = 0.0
+
+
+def note_list_scrolled(*_args) -> None:
+    global _last_list_scroll
+    _last_list_scroll = time.monotonic()
+
+
+def list_recently_scrolled() -> bool:
+    return time.monotonic() - _last_list_scroll < LIST_SCROLL_GRACE
+
+
+class WheelSteps:
+    """Turns wheel events into whole volume steps, adding up the small
+    pieces a touchpad sends instead of moving a step for each one."""
+
+    def __init__(self):
+        self._pending = 0
+
+    def steps(self, event) -> int:
+        delta = event.angleDelta()
+        amount = delta.y() or delta.x()
+        if (amount > 0) != (self._pending > 0):
+            self._pending = 0  # changed direction
+        self._pending += amount
+        notches = int(self._pending / NOTCH)
+        self._pending -= notches * NOTCH
+        fine = bool(event.modifiers() & Qt.ShiftModifier)
+        return notches * (WHEEL_STEP_FINE if fine else WHEEL_STEP)
 
 
 def meter_height(normal: float) -> int:
@@ -140,6 +184,22 @@ class VolumeSlider(QSlider):
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.NoFocus)
         self.setProperty("muted", False)
+        self.in_list = False  # set for sliders inside a scrolling list
+        self._entered = 0.0
+        self._wheel = WheelSteps()
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._entered = time.monotonic()
+        super().enterEvent(event)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        if self.in_list and (list_recently_scrolled() or time.monotonic() - self._entered < HOVER_SETTLE):
+            event.ignore()  # let the list scroll instead
+            return
+        steps = self._wheel.steps(event)
+        if steps:
+            self.setValue(self.value() + steps)
+        event.accept()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:
@@ -175,6 +235,22 @@ def icon_button(tooltip: str, size: int) -> QToolButton:
     return btn
 
 
+ARROW_STEP = 1  # volume points per arrow click
+ARROW_REPEAT_DELAY_MS = 350  # hold an arrow this long and it starts repeating...
+ARROW_REPEAT_MS = 45  # ...this often
+
+
+def step_button(up: bool, size: float = 20) -> QToolButton:
+    """An arrow that turns a volume up or down 1%, repeating while held."""
+    btn = icon_button("Turn up 1%" if up else "Turn down 1%", px(size))
+    btn.setIcon(icons.step_arrow(px(size), up=up))
+    btn.setFixedSize(px(size + 4), px(size + 4))
+    btn.setAutoRepeat(True)
+    btn.setAutoRepeatDelay(ARROW_REPEAT_DELAY_MS)
+    btn.setAutoRepeatInterval(ARROW_REPEAT_MS)
+    return btn
+
+
 class VolumeRow(QFrame):
     """One line in a list: icon, name, slider, %, mute and optional extras."""
 
@@ -187,6 +263,7 @@ class VolumeRow(QFrame):
         self.key = key
         self.is_input = is_input
         self._muted = False
+        self._shown: tuple[int, bool] | None = None
         self._can_default = can_default
         self.setObjectName("Row")
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -216,6 +293,7 @@ class VolumeRow(QFrame):
         self.mute_btn.clicked.connect(self._on_mute_clicked)
 
         self.slider = VolumeSlider()
+        self.slider.in_list = True
         self.slider.valueChanged.connect(self._on_slider)
         self.percent = QLabel("0")
         self.percent.setObjectName("Percent")
@@ -281,6 +359,9 @@ class VolumeRow(QFrame):
 
     def _show_volume(self, volume: int, muted: bool) -> None:
         self._muted = muted
+        if self._shown == (volume, muted):
+            return  # nothing changed: skip redrawing the icon
+        self._shown = (volume, muted)
         self.percent.setText(str(volume))
         self.slider.set_muted_look(muted)
         size = px(16)
@@ -307,6 +388,7 @@ class MasterCard(QWidget):
     def __init__(self):
         super().__init__()
         self._muted = False
+        self._shown: tuple[int, bool] | None = None
 
         eyebrow = caps_label("Master volume", "Eyebrow")
         self.device = ElidedLabel("Default output")
@@ -328,6 +410,10 @@ class MasterCard(QWidget):
         self.slider.setObjectName("MasterSlider")
         self.slider.valueChanged.connect(self._on_slider)
         self.meter = LevelMeter(meter_height(3.5))
+        self.down_btn = step_button(up=False, size=18)
+        self.up_btn = step_button(up=True, size=18)
+        self.down_btn.clicked.connect(lambda: self.step(-ARROW_STEP))
+        self.up_btn.clicked.connect(lambda: self.step(ARROW_STEP))
 
         self.dials_btn = icon_button("Switch to dials", px(16))
         self.dials_btn.setIcon(icons.knob(px(16)))
@@ -354,6 +440,13 @@ class MasterCard(QWidget):
         controls.setSpacing(px(8))
         controls.addWidget(self.mute_btn, 0, Qt.AlignTop)
         controls.addLayout(slider_col, 1)
+        arrows = QHBoxLayout()
+        arrows.setSpacing(px(2))
+        arrows.setContentsMargins(0, px(2), 0, 0)
+        arrows.addWidget(self.down_btn)
+        arrows.addWidget(self.up_btn)
+        controls.addLayout(arrows)
+        controls.setAlignment(arrows, Qt.AlignTop)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -363,10 +456,16 @@ class MasterCard(QWidget):
         lay.addSpacing(px(4))
         lay.addLayout(controls)
 
+    def step(self, amount: int) -> None:
+        if self.slider.isEnabled():
+            self.slider.setValue(self.slider.value() + amount)
+
     def set_device(self, name: str | None, volume: int = 0, muted: bool = False) -> None:
         has_device = name is not None
         self.slider.setEnabled(has_device)
         self.mute_btn.setEnabled(has_device)
+        self.down_btn.setEnabled(has_device)
+        self.up_btn.setEnabled(has_device)
         if name is None:
             self.device.set_full_text("No output device")
             self.percent.setText("–")
@@ -390,6 +489,9 @@ class MasterCard(QWidget):
 
     def _show_volume(self, volume: int, muted: bool) -> None:
         self._muted = muted
+        if self._shown == (volume, muted):
+            return  # nothing changed: skip redrawing the icon
+        self._shown = (volume, muted)
         self.percent.setText(str(volume))
         self.slider.set_muted_look(muted)
         self.mute_btn.setIcon(icons.speaker_for(volume, muted, px(22)))

@@ -588,3 +588,144 @@ def test_arrows_disabled_when_nothing_to_control(window):
     backend.apps.clear()
     w.refresh()
     assert not dials.app_col.up_btn.isEnabled() and not dials.app_col.down_btn.isEnabled()
+
+
+# ---- refinements: live sync, wheel, arrows, snapping, meters ----------------------
+def _wheel(widget, delta: int, modifiers=Qt.NoModifier):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+
+    centre = QPointF(widget.width() / 2, widget.height() / 2)
+    event = QWheelEvent(centre, QPointF(widget.mapToGlobal(centre.toPoint())), QPoint(), QPoint(0, delta),
+                        Qt.NoButton, modifiers, Qt.NoScrollPhase, False)
+    QApplication.sendEvent(widget, event)
+    return event
+
+
+def test_master_follows_volume_keys_quickly(window):
+    w, backend = window
+    w.show_widget()
+    backend.devices["spk"].volume = 23  # e.g. the keyboard's volume-down key
+    backend.devices["spk"].muted = True
+    w.quick_sync()  # runs 5 times a second, much cheaper than a full refresh
+    assert w.master.slider.value() == 23 and w.master._muted
+    assert w.devices_panel.rows["spk"].slider.value() == 23
+
+
+def test_dials_follow_outside_changes_quickly(window):
+    w, backend = window
+    dials = _dials(w)
+    w.show_widget()
+    backend.devices["spk"].volume = 12
+    backend.apps[dials.shown_app].volume = 7
+    w.quick_sync()
+    assert dials.device_col.knob.value() == 12
+    assert dials.app_col.knob.value() == 7
+
+
+def test_master_arrows(window):
+    w, backend = window
+    start = backend.devices["spk"].volume
+    w.master.up_btn.click()
+    assert backend.devices["spk"].volume == start + 1
+    w.master.down_btn.click()
+    w.master.down_btn.click()
+    assert backend.devices["spk"].volume == start - 1
+    assert w.master.up_btn.autoRepeat()
+
+
+def test_wheel_steps_two_or_one_with_shift(window):
+    w, backend = window
+    w.show_widget()
+    slider = w.master.slider
+    start = slider.value()
+    _wheel(slider, 120)
+    assert slider.value() == start + 2
+    _wheel(slider, -120, Qt.ShiftModifier)
+    assert slider.value() == start + 1
+    assert backend.devices["spk"].volume == start + 1
+
+
+def test_touchpad_scrolling_adds_up(window):
+    w, _ = window
+    w.show_widget()
+    knob = _dials(w).device_col.knob
+    start = knob.value()
+    for _ in range(3):
+        _wheel(knob, 30)  # touchpads send small pieces of a notch
+    assert knob.value() == start  # not a whole notch yet
+    _wheel(knob, 30)
+    assert knob.value() == start + 2  # four pieces = one notch
+
+
+def test_scrolling_the_list_does_not_change_volumes(window, monkeypatch):
+    import volume_mixer.widgets as widgets
+
+    w, backend = window
+    w.show_widget()
+    slider = w.devices_panel.rows["hp"].slider
+    before = backend.devices["hp"].volume
+    widgets.note_list_scrolled()  # the list is scrolling under the mouse
+    event = _wheel(slider, 120)
+    assert backend.devices["hp"].volume == before
+    assert not event.isAccepted()  # handed on to the list
+    # Once the list is still and the mouse has rested on the slider, the
+    # wheel adjusts that volume.
+    monkeypatch.setattr(widgets, "_last_list_scroll", 0.0)
+    slider._entered = 0.0
+    _wheel(slider, 120)
+    assert backend.devices["hp"].volume == before + 2
+
+
+def test_snaps_to_screen_edges(window):
+    w, _ = window
+    w.show_widget()
+    area = QApplication.primaryScreen().availableGeometry()
+    m = w.margin
+    from volume_mixer.theme import px
+    from volume_mixer.window import SNAP_GAP
+
+    middle_y = area.top() + (area.height() - w.height()) // 2  # far from top and bottom
+    near_left = QPoint(area.left() + px(SNAP_GAP) - m + 5, middle_y)
+    snapped = w._snapped(near_left, area.center())
+    assert snapped.x() + m == area.left() + px(SNAP_GAP) and snapped.y() == middle_y
+    near_bottom = QPoint(area.left() + 100, area.bottom() + 1 - w.height() + m - px(SNAP_GAP) - 6)
+    snapped = w._snapped(near_bottom, area.center())
+    assert snapped.y() + w.height() - m == area.bottom() + 1 - px(SNAP_GAP)
+    far = QPoint(area.left() + 100, middle_y)
+    assert w._snapped(far, area.center()) == far
+
+
+def test_meters_can_be_turned_off(window, store):
+    from volume_mixer.widgets import LevelMeter
+
+    w, _ = window
+    w.show_widget()
+    w.set_meters(False)
+    assert store.config.meters is False
+    assert not w.meter_timer.isActive()
+    assert all(m.isHidden() for m in w.findChildren(LevelMeter))
+    _dials(w)  # stays off after rebuilding
+    assert all(m.isHidden() for m in w._content.findChildren(LevelMeter))
+    w.set_meters(True)
+    assert w.meter_timer.isActive()
+
+
+def test_menu_shows_version(window):
+    from volume_mixer import __version__
+
+    w, _ = window
+    w._fill_menu()
+    texts = [a.text() for a in w.menu.actions()]
+    assert f"Volume Mixer {__version__}" in texts
+
+
+def test_self_test_passes_with_the_demo_backend(qapp, tmp_path):
+    from volume_mixer import selftest
+
+    log = tmp_path / "selftest.txt"
+    code = selftest.run(qapp, log, demo=True)
+    text = log.read_text(encoding="utf-8")
+    assert code == 0, text
+    assert "PASSED" in text.splitlines()[0]
+    assert "ERROR" not in text

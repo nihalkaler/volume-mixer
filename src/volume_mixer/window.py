@@ -39,17 +39,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import APP_NAME, desktop, icons, theme
+from . import APP_NAME, __version__, desktop, icons, theme
 from .config import LAYER_NAMES, LAYERS, MODE_NAMES, MODES, Config, ConfigStore
 from .dials import DialsView
 from .models import INPUT, OUTPUT, AppInfo, AudioBackend, DeviceInfo
 from .theme import px
-from .widgets import ListPanel, MasterCard, VolumeRow
+from .widgets import LevelMeter, ListPanel, MasterCard, VolumeRow, note_list_scrolled
 
 log = logging.getLogger(__name__)
 
-REFRESH_MS = 1000  # how often devices and apps are re-read
+REFRESH_MS = 1000  # how often the lists of devices and apps are re-read
+SYNC_MS = 200  # how often the volumes you can see are re-read (cheap)
 METER_MS = 50  # level meters, about 20 frames a second
+SNAP_DISTANCE = 16  # drag within this many pixels of a screen edge to snap to it
+SNAP_GAP = 10  # gap left between the widget and the edge it snapped to
 SAVE_POSITION_MS = 600
 
 TAB_DEVICES = 0
@@ -128,6 +131,10 @@ class MixerWindow(QWidget):
         self.refresh_timer.timeout.connect(self.refresh)
         self.meter_timer = QTimer(self)
         self.meter_timer.timeout.connect(self.update_meters)
+        # Volume keys on the keyboard and the Windows volume flyout change
+        # the volume behind our back; this keeps what you see in step.
+        self.sync_timer = QTimer(self)
+        self.sync_timer.timeout.connect(self.quick_sync)
         self._save_pos_timer = QTimer(self, singleShot=True, interval=SAVE_POSITION_MS)
         self._save_pos_timer.timeout.connect(self._save_position)
 
@@ -136,7 +143,13 @@ class MixerWindow(QWidget):
         self._setup_tray()
         self._watch_settings()
         self.refresh_timer.start(REFRESH_MS)
-        self.meter_timer.start(METER_MS)
+        self.sync_timer.start(SYNC_MS)
+        if self.cfg.meters:
+            self.meter_timer.start(METER_MS)
+        app = QApplication.instance()
+        if app is not None:
+            # Signing out or shutting down: let the widget close.
+            app.commitDataRequest.connect(self._session_ending)
 
     # ------------------------------------------------------------------
     # building (and rebuilding when the theme or size changes)
@@ -182,6 +195,7 @@ class MixerWindow(QWidget):
             lay.addWidget(self.dials)
             self._root.addWidget(content)
             self._content = content
+            self._hide_meters_if_off()
             self.refresh()
             self.update()
             return
@@ -222,6 +236,7 @@ class MixerWindow(QWidget):
             scroll.setFrameShape(QFrame.NoFrame)
             scroll.viewport().setAutoFillBackground(False)
             scroll.setWidget(panel)
+            scroll.verticalScrollBar().valueChanged.connect(note_list_scrolled)
             self.pages.addWidget(scroll)
             self._scrolls.append(scroll)
 
@@ -239,8 +254,14 @@ class MixerWindow(QWidget):
         self.pages.setCurrentIndex(index)
         self.tab_buttons.button(index).setChecked(True)
 
+        self._hide_meters_if_off()
         self.refresh()
         self.update()
+
+    def _hide_meters_if_off(self) -> None:
+        if not self.cfg.meters:
+            for meter in self._content.findChildren(LevelMeter):
+                meter.hide()
 
     def _segment(self, text: str) -> QPushButton:
         btn = QPushButton(text)
@@ -491,10 +512,32 @@ class MixerWindow(QWidget):
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._drag_offset is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            target = event.globalPosition().toPoint() - self._drag_offset
+            self.move(self._snapped(target, event.globalPosition().toPoint()))
             event.accept()
             return
         super().mouseMoveEvent(event)
+
+    def _snapped(self, top_left: QPoint, cursor: QPoint) -> QPoint:
+        """Pull the widget neatly against a screen edge when it's dragged
+        close to one (the edges of the area not covered by the taskbar)."""
+        screen = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return top_left
+        area = screen.availableGeometry()
+        m, gap, near = self.margin, px(SNAP_GAP), px(SNAP_DISTANCE)
+        x, y = top_left.x(), top_left.y()
+        left, top = x + m, y + m  # the visible panel, inside the shadow margin
+        right, bottom = x + self.width() - m, y + self.height() - m
+        if abs(left - (area.left() + gap)) < near:
+            x = area.left() + gap - m
+        elif abs(right - (area.right() + 1 - gap)) < near:
+            x = area.right() + 1 - gap - (self.width() - m)
+        if abs(top - (area.top() + gap)) < near:
+            y = area.top() + gap - m
+        elif abs(bottom - (area.bottom() + 1 - gap)) < near:
+            y = area.bottom() + 1 - gap - (self.height() - m)
+        return QPoint(x, y)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._drag_offset is not None and event.button() == Qt.LeftButton:
@@ -575,6 +618,12 @@ class MixerWindow(QWidget):
         choices("Theme", [(t, theme.THEME_NAMES[t]) for t in theme.THEMES], cfg.theme, self.set_theme)
         choices("Placement", [(layer, LAYER_NAMES[layer]) for layer in LAYERS], cfg.layer, self.set_layer)
 
+        meters = m.addAction("Level meters")
+        meters.setCheckable(True)
+        meters.setChecked(cfg.meters)
+        meters.setToolTip("Turn off to save a little power while sound plays")
+        meters.toggled.connect(self.set_meters)
+
         lock = m.addAction("Lock position")
         lock.setCheckable(True)
         lock.setChecked(cfg.locked)
@@ -591,6 +640,8 @@ class MixerWindow(QWidget):
         sound.setEnabled(desktop.IS_WINDOWS)
         m.addAction("Edit settings file…", lambda: desktop.open_in_editor(self.store.path))
         m.addSeparator()
+        version = m.addAction(f"{APP_NAME} {__version__}")
+        version.setEnabled(False)
         m.addAction("Exit", self.quit)
 
     # ------------------------------------------------------------------
@@ -628,6 +679,9 @@ class MixerWindow(QWidget):
     def set_layer(self, layer: str) -> None:
         self._change(layer=layer)
 
+    def set_meters(self, on: bool) -> None:
+        self._change(meters=on)
+
     def set_locked(self, locked: bool) -> None:
         self._change(locked=locked)
 
@@ -654,6 +708,8 @@ class MixerWindow(QWidget):
             self._build()
         if new.opacity != old.opacity:
             self.update()
+        if new.meters != old.meters:
+            self._show_meters(new.meters)
         if self.dials is None:
             if new.compact != old.compact:
                 self.master.set_collapsed(new.compact)
@@ -717,10 +773,28 @@ class MixerWindow(QWidget):
             self.show_widget()
         self.layer.bring_forward()
 
+    def _show_meters(self, on: bool) -> None:
+        for meter in self.findChildren(LevelMeter):
+            meter.set_level(0)
+            meter.setVisible(on)
+        if on:
+            self.meter_timer.start(METER_MS)
+        else:
+            self.meter_timer.stop()
+        self._fit()
+
+    def _session_ending(self, _manager) -> None:
+        """Windows is signing out or shutting down: allow closing, and make
+        sure the position is saved."""
+        self._quitting = True
+        self._save_position()
+        self.layer.close()
+
     def quit(self) -> None:
         self._quitting = True
         self._save_position()
         self.refresh_timer.stop()
+        self.sync_timer.stop()
         self.meter_timer.stop()
         self.layer.close()
         if self.tray is not None:
@@ -835,6 +909,33 @@ class MixerWindow(QWidget):
             icon = icons.letter_tile(size, app.name)
         self._app_icons[app.key] = icon
         return icon
+
+    def quick_sync(self) -> None:
+        """Re-read just the volumes on show (master, or the two dials)."""
+        if not self.isVisible():
+            return
+        try:
+            if self.dials is not None:
+                device = self.dials.target_device()
+                state = self.backend.device_state(device.id) if device else None
+                if state:
+                    device.volume, device.muted = state
+                    self.dials.device_col.show_state(*state, device.flow == INPUT)
+                app = self.dials.target_app()
+                state = self.backend.app_state(app.key) if app else None
+                if state:
+                    app.volume, app.muted = state
+                    self.dials.app_col.show_state(*state, False)
+                return
+            if self._master_id:
+                state = self.backend.device_state(self._master_id)
+                if state:
+                    self.master.set_device(self.master.device.full_text(), *state)
+                    row = self.devices_panel.rows.get(self._master_id)
+                    if row is not None:
+                        row.set_state(row.title.full_text(), *state, is_default=True)
+        except Exception:
+            log.exception("Could not re-read the volume")
 
     def update_meters(self) -> None:
         if not self.isVisible():

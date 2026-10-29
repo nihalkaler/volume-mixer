@@ -201,17 +201,30 @@ def autostart_supported() -> bool:
     return IS_WINDOWS
 
 
-def autostart_enabled() -> bool:
+def autostart_command() -> str | None:
+    """What Windows currently runs at sign-in for this widget, if anything."""
     if not IS_WINDOWS:
-        return False
+        return None
     import winreg
 
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            winreg.QueryValueEx(key, RUN_VALUE)
-            return True
+            value, _kind = winreg.QueryValueEx(key, RUN_VALUE)
+            return str(value)
     except OSError:
-        return False
+        return None
+
+
+def autostart_enabled() -> bool:
+    return autostart_command() is not None
+
+
+def refresh_autostart() -> None:
+    """If the exe has been moved since Start with Windows was turned on,
+    point Windows at where it is now (otherwise it silently stops starting)."""
+    command = autostart_command()
+    if command is not None and command != launch_command():
+        set_autostart(True)
 
 
 def set_autostart(enabled: bool) -> None:
