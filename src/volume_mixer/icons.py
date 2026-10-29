@@ -109,6 +109,28 @@ def chevron(size: int, up: bool) -> QIcon:
     return QIcon(pm)
 
 
+def step_arrow(size: int, up: bool) -> QIcon:
+    """A solid up or down arrow on a small tile: the dials' step buttons."""
+    pm, p = _canvas(size)
+    s = size / 24.0
+    _tile(p, 24 * s)
+    path = QPainterPath()
+    if up:
+        path.moveTo(12 * s, 7 * s)
+        path.lineTo(18 * s, 15.5 * s)
+        path.lineTo(6 * s, 15.5 * s)
+    else:
+        path.moveTo(12 * s, 17 * s)
+        path.lineTo(18 * s, 8.5 * s)
+        path.lineTo(6 * s, 8.5 * s)
+    path.closeSubpath()
+    p.setPen(_pen(theme.P.text, 1.2 * s))
+    p.setBrush(theme.P.text)
+    p.drawPath(path)
+    p.end()
+    return QIcon(pm)
+
+
 def knob(size: int) -> QIcon:
     """A small dial: a ring with a pointer (the "switch to dials" button)."""
     pm, p = _canvas(size)

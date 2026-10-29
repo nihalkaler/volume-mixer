@@ -57,7 +57,7 @@ TAB_APPS = 1
 TAB_KEYS = ("devices", "apps")
 
 PANEL_WIDTH = 330  # at normal size
-DIALS_WIDTH = 310  # the Extra small (dials) view, at its own scale
+DIALS_WIDTH = 340  # the Extra small (dials) view, at its own scale
 MAX_LIST_HEIGHT = 300  # rows beyond this scroll
 SCREEN_GAP = 24  # gap from the screen edge on first launch
 
