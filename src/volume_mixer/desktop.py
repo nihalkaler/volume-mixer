@@ -232,7 +232,10 @@ def set_autostart(enabled: bool) -> None:
         return
     import winreg
 
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+    # CreateKeyEx opens the Run key, or creates it on profiles that don't
+    # have one yet (OpenKey would fail there and Start with Windows would
+    # silently never turn on).
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         if enabled:
             winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, launch_command())
         else:
