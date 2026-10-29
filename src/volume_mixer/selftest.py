@@ -23,6 +23,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QtMsgType, QTimer, qInstallMessageHandler
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from . import APP_NAME, __version__, desktop, theme
@@ -205,8 +206,11 @@ def _steps(widget, backend, store, report: Report):
     widget.show_widget()
     yield 400
     report.check(widget.isVisible() and widget.width() > 100, "widget shows")
-    if desktop.IS_WINDOWS:
+    if desktop.IS_WINDOWS and QGuiApplication.platformName() == "windows":
         yield from _window_checks(widget, report)
+    elif desktop.IS_WINDOWS:
+        # e.g. the test suite's invisible screen: no real windows to check
+        report.info(f"window placement not checked on the {QGuiApplication.platformName()!r} screen")
 
     # ---- every mode, theme and size -------------------------------------------------------
     for mode in MODES:
@@ -310,7 +314,7 @@ def _window_checks(widget, report: Report):
 def _restore_autostart(before: str | None) -> None:
     import winreg
 
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, desktop.RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, desktop.RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         if before is None:
             try:
                 winreg.DeleteValue(key, desktop.RUN_VALUE)
