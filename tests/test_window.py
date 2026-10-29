@@ -551,3 +551,40 @@ def test_value_at_angle():
     assert value_at_angle(-45) == 100  # bottom-right
     assert value_at_angle(-60) == 100  # in the gap, nearer the full end
     assert value_at_angle(240) == 0  # in the gap, nearer the empty end
+
+
+def test_arrows_step_the_dial(window):
+    w, backend = window
+    col = _dials(w).device_col
+    start = col.knob.value()
+    col.up_btn.click()
+    col.up_btn.click()
+    assert col.knob.value() == start + 2
+    assert backend.devices["spk"].volume == start + 2
+    col.down_btn.click()
+    assert backend.devices["spk"].volume == start + 1
+
+
+def test_arrows_stop_at_the_ends(window):
+    w, backend = window
+    col = _dials(w).app_col
+    col.knob.setValue(100)
+    col.up_btn.click()
+    assert col.knob.value() == 100
+    col.knob.setValue(0)
+    col.down_btn.click()
+    assert col.knob.value() == 0
+
+
+def test_arrows_repeat_while_held(window):
+    w, _ = window
+    col = _dials(w).device_col
+    assert col.up_btn.autoRepeat() and col.down_btn.autoRepeat()
+
+
+def test_arrows_disabled_when_nothing_to_control(window):
+    w, backend = window
+    dials = _dials(w)
+    backend.apps.clear()
+    w.refresh()
+    assert not dials.app_col.up_btn.isEnabled() and not dials.app_col.down_btn.isEnabled()

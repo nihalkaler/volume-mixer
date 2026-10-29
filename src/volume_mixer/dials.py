@@ -5,8 +5,9 @@ whichever output Windows is using, so out of the box it's the master
 volume). The right dial controls an app picked from its dropdown.
 
 Click anywhere on a dial's scale and it jumps to that volume; drag around
-the dial and it follows the mouse. The scroll wheel moves it 2% a notch
-(1% with Shift), and Shift-dragging moves it in fine steps.
+the dial and it follows the mouse. The arrows either side step it 1% at a
+time (hold one to keep going), the scroll wheel moves it 2% a notch (1% with
+Shift), and Shift-dragging moves it in fine steps.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,6 +41,9 @@ START = 225.0  # angle of 0% (bottom-left), counter-clockwise from 3 o'clock
 DRAG_PER_PIXEL = 0.5  # dragging from the centre: volume points per pixel
 FINE_PER_PIXEL = 0.2  # Shift-dragging: fine steps
 HUB = 0.22  # pressing inside this share of the radius drags instead of jumping
+ARROW_STEP = 1  # volume points per arrow click
+ARROW_REPEAT_DELAY_MS = 350  # hold an arrow this long and it starts repeating...
+ARROW_REPEAT_MS = 45  # ...this often
 
 
 def value_at_angle(degrees_ccw: float) -> int:
@@ -367,8 +372,20 @@ class ThemedCombo(QComboBox):
         painter.drawPolyline([QPointF(cx - w, cy - w / 2), QPointF(cx, cy + w / 2), QPointF(cx + w, cy - w / 2)])
 
 
+def step_button(up: bool) -> QToolButton:
+    """An arrow that turns the dial up or down a step, repeating while held."""
+    btn = icon_button("Turn up 1%" if up else "Turn down 1%", px(20))
+    btn.setIcon(icons.step_arrow(px(20), up=up))
+    btn.setFixedSize(px(24), px(24))
+    btn.setAutoRepeat(True)
+    btn.setAutoRepeatDelay(ARROW_REPEAT_DELAY_MS)
+    btn.setAutoRepeatInterval(ARROW_REPEAT_MS)
+    return btn
+
+
 class DialColumn(QWidget):
-    """Label, dropdown, knob, and a mute button with a level meter."""
+    """Label, dropdown, knob with step arrows, and a mute button with a
+    level meter."""
 
     volumeChanged = Signal(int)
     muteClicked = Signal()
@@ -384,6 +401,10 @@ class DialColumn(QWidget):
         self.combo = ThemedCombo()
         self.knob = Knob(px(92))
         self.knob.valueChanged.connect(self.volumeChanged)
+        self.down_btn = step_button(up=False)
+        self.up_btn = step_button(up=True)
+        self.down_btn.clicked.connect(lambda: self.step(-ARROW_STEP))
+        self.up_btn.clicked.connect(lambda: self.step(ARROW_STEP))
         self.mute_btn = icon_button("Mute", px(15))
         self.mute_btn.clicked.connect(self.muteClicked)
         self.meter = LevelMeter(meter_height(2.5))
@@ -400,12 +421,27 @@ class DialColumn(QWidget):
         lay.addLayout(self.header)
         lay.addWidget(self.combo)
         lay.addSpacing(px(2))
-        lay.addWidget(self.knob, 0, Qt.AlignHCenter)
+        # Down arrow by the 0% end of the scale, up arrow by the 100% end.
+        knob_row = QHBoxLayout()
+        knob_row.setContentsMargins(0, 0, 0, 0)
+        knob_row.setSpacing(0)
+        knob_row.addStretch(1)
+        knob_row.addWidget(self.down_btn, 0, Qt.AlignBottom)
+        knob_row.addWidget(self.knob)
+        knob_row.addWidget(self.up_btn, 0, Qt.AlignBottom)
+        knob_row.addStretch(1)
+        lay.addLayout(knob_row)
         lay.addLayout(bottom)
+
+    def step(self, amount: int) -> None:
+        if self.knob.isEnabled():
+            self.knob.setValue(self.knob.value() + amount)
 
     def show_state(self, volume: int, muted: bool, is_input: bool, enabled: bool = True) -> None:
         self.knob.setEnabled(enabled)
         self.mute_btn.setEnabled(enabled)
+        self.down_btn.setEnabled(enabled)
+        self.up_btn.setEnabled(enabled)
         self.knob.set_value_quietly(volume)
         self.knob.set_muted(muted)
         size = px(15)
