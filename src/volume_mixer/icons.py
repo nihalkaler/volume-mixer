@@ -3,7 +3,7 @@ no icon font or image files (apart from the app icon)."""
 
 from __future__ import annotations
 
-import hashlib
+import zlib
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -192,7 +192,7 @@ def device_badge(size: int, is_input: bool) -> QIcon:
 def letter_tile(size: int, name: str) -> QIcon:
     """Coloured tile with the app's first letter, for apps without an icon."""
     pm, p = _canvas(size)
-    hue = hashlib.md5(name.encode("utf-8")).digest()[0] * 360 // 256
+    hue = zlib.crc32(name.encode("utf-8")) % 360  # same colour for the same app every time
     p.setPen(Qt.NoPen)
     p.setBrush(QColor.fromHsl(hue, 110, 70))
     p.drawRoundedRect(QRectF(0, 0, size, size), size * 0.28, size * 0.28)

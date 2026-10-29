@@ -39,6 +39,7 @@ class Config:
     opacity: float = 0.85
     tab: str = "devices"
     compact: bool = False
+    meters: bool = True  # live level meters
     accent: str | None = None  # e.g. "#2EC4B6"; None uses the theme's accent
     mode: str = "default"  # default (full mixer) | dials
     dial_size: int = 50  # size of the dials mode, kept separately from `size`
@@ -97,6 +98,8 @@ class Config:
             cfg.tab = v
         if "compact" in data:
             cfg.compact = need("compact", (bool,), "true or false")
+        if "meters" in data:
+            cfg.meters = need("meters", (bool,), "true or false")
         if "accent" in data:
             v = need("accent", (str,), 'a colour like "#2EC4B6"')
             if v and not _HEX.match(v):
@@ -138,6 +141,7 @@ class Config:
             f"opacity = {self.opacity:<13g}# background, 0.3 to 1.0",
             f"tab = {q(self.tab):<17}# devices | apps",
             f"compact = {str(self.compact).lower():<13}# true shows the master volume only",
+            f"meters = {str(self.meters).lower():<14}# false hides the live level meters",
         ]
         if self.accent:
             lines.append(f"accent = {q(self.accent):<14}# your own accent colour")

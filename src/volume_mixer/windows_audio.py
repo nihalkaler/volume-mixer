@@ -220,6 +220,17 @@ class WindowsAudioBackend:
             # value check is needed here.
             policy.SetDefaultEndpoint(device_id, role.value)
 
+    def device_state(self, device_id: str) -> tuple[int, bool] | None:
+        """Volume and mute of one device, for the quick 5-times-a-second
+        check that keeps the master volume in step with the keyboard's
+        volume keys and the Windows volume flyout."""
+        try:
+            vol = self._device(device_id).EndpointVolume
+            return clamp_percent(vol.GetMasterVolumeLevelScalar() * 100), bool(vol.GetMute())
+        except _GONE:
+            self._forget_device(device_id)
+            return None
+
     def device_peak(self, device_id: str) -> float:
         try:
             meter = self._meters.get(device_id)
@@ -351,6 +362,20 @@ class WindowsAudioBackend:
                 session.SimpleAudioVolume.SetMute(int(bool(muted)), None)
             except _GONE:
                 continue
+
+    def app_state(self, key: str) -> tuple[int, bool] | None:
+        """Volume and mute of one app (loudest session; muted only if every
+        session is), matching what list_apps reports."""
+        volume, muted, found = 0, True, False
+        for session in self._sessions.get(key, []):
+            try:
+                vol = session.SimpleAudioVolume
+                volume = max(volume, clamp_percent(vol.GetMasterVolume() * 100))
+                muted = muted and bool(vol.GetMute())
+                found = True
+            except _GONE:
+                continue
+        return (volume, muted) if found else None
 
     def app_peak(self, key: str) -> float:
         meters = self._session_meters.get(key)
