@@ -58,7 +58,9 @@ Right-click → **Mode** → **Dials** (or click the little knob icon next to
   a faint dot shows where it will land before you click. **Drag round the
   dial** and it follows the mouse (it stops at 0% and 100% rather than
   jumping across the gap at the bottom).
-- For fine control, **scroll** over a dial (2% a notch, 1% with Shift) or
+- **The arrows** either side of each dial turn it down or up 1% a click, and
+  keep going while you hold them.
+- For fine control you can also **scroll** over a dial (2% a notch, 1% with Shift) or
   **hold Shift and drag** up or down.
 - The speaker icon under each knob mutes it, and the bar shows how loud it is
   right now.
@@ -98,6 +100,7 @@ icon, and turns on **Start with Windows**.
 | Change the size | Right-click → **Size** (sizes for whichever mode is showing) |
 | Change the theme | Right-click → **Theme** |
 | Set a dial | Click the spot on its scale, or drag round it |
+| Nudge a dial up or down | Click (or hold) the arrows beside it |
 | Fine-tune a dial | Scroll over it, or Shift-drag up or down |
 | Reach the menu when the widget is covered | Click the icon in the system tray |
 | Open the Windows sound settings | Right-click → **Windows sound settings…** |
