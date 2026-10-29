@@ -54,9 +54,14 @@ Right-click → **Mode** → **Dials** (or click the little knob icon next to
 - **App** (right): pick any app that's playing sound. If that app closes, the
   dial shows another one meanwhile and switches back when your app starts
   playing again.
-- Turn a knob by dragging up (louder) or down (quieter), or with the scroll
-  wheel. The speaker icon under each knob mutes it, and the LED bar shows how
-  loud it is right now.
+- **Click anywhere on a dial's scale** and it jumps straight to that volume;
+  a faint dot shows where it will land before you click. **Drag round the
+  dial** and it follows the mouse (it stops at 0% and 100% rather than
+  jumping across the gap at the bottom).
+- For fine control, **scroll** over a dial (2% a notch, 1% with Shift) or
+  **hold Shift and drag** up or down.
+- The speaker icon under each knob mutes it, and the bar shows how loud it is
+  right now.
 - The faders icon top-right, or right-click → **Mode** → **Default**, brings
   back the full mixer.
 
@@ -92,7 +97,8 @@ icon, and turns on **Start with Windows**.
 | Switch between the full mixer and the dials | Right-click → **Mode**, or the knob / faders icon top-right |
 | Change the size | Right-click → **Size** (sizes for whichever mode is showing) |
 | Change the theme | Right-click → **Theme** |
-| Turn a dial | Drag up or down on it, or scroll over it |
+| Set a dial | Click the spot on its scale, or drag round it |
+| Fine-tune a dial | Scroll over it, or Shift-drag up or down |
 | Reach the menu when the widget is covered | Click the icon in the system tray |
 | Open the Windows sound settings | Right-click → **Windows sound settings…** |
 
