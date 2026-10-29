@@ -302,6 +302,7 @@ class MasterCard(QWidget):
     volumeChanged = Signal(int)
     muteToggled = Signal(bool)
     collapseToggled = Signal(bool)  # True = show the master volume only
+    dialsRequested = Signal()  # switch to dials mode
 
     def __init__(self):
         super().__init__()
@@ -328,9 +329,14 @@ class MasterCard(QWidget):
         self.slider.valueChanged.connect(self._on_slider)
         self.meter = LevelMeter(meter_height(3.5))
 
+        self.dials_btn = icon_button("Switch to dials", px(16))
+        self.dials_btn.setIcon(icons.knob(px(16)))
+        self.dials_btn.clicked.connect(self.dialsRequested)
+
         top = QHBoxLayout()
-        top.setSpacing(px(4))
+        top.setSpacing(px(2))
         top.addWidget(eyebrow, 1, Qt.AlignVCenter)
+        top.addWidget(self.dials_btn, 0, Qt.AlignVCenter)
         top.addWidget(self.collapse_btn, 0, Qt.AlignVCenter)
 
         name_row = QHBoxLayout()

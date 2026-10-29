@@ -362,8 +362,8 @@ class DialsView(QWidget):
 
         self.device_col = DialColumn("Device")
         self.app_col = DialColumn("App")
-        self.expand_btn = icon_button("Show the full mixer", px(14))
-        self.expand_btn.setIcon(icons.chevron(px(14), up=False))
+        self.expand_btn = icon_button("Switch to the full mixer", px(14))
+        self.expand_btn.setIcon(icons.faders(px(14)))
         self.expand_btn.clicked.connect(self.expandRequested)
         self.app_col.header.addWidget(self.expand_btn, 0, Qt.AlignVCenter)
         self.expand_btn.setFixedSize(px(18), px(16))

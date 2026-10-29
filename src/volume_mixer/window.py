@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import APP_NAME, desktop, icons, theme
-from .config import LAYER_NAMES, LAYERS, Config, ConfigStore
+from .config import LAYER_NAMES, LAYERS, MODE_NAMES, MODES, Config, ConfigStore
 from .dials import DialsView
 from .models import INPUT, OUTPUT, AppInfo, AudioBackend, DeviceInfo
 from .theme import px
@@ -152,8 +152,8 @@ class MixerWindow(QWidget):
         return pal
 
     def _build(self) -> None:
-        use_dials = self.cfg.view == "dials"
-        theme.use(self._palette(), theme.DIALS_SCALE if use_dials else theme.scale_for(self.cfg.size))
+        use_dials = self.cfg.mode == "dials"
+        theme.use(self._palette(), theme.scale_for(self.cfg.dial_size if use_dials else self.cfg.size))
         self.margin = px(14)  # room for the soft shadow round the panel
         pad = px(14)
         bottom = px(13) if theme.P.console else px(10)  # clear of the screws
@@ -178,7 +178,7 @@ class MixerWindow(QWidget):
             self.dials.appMute.connect(self._set_app_mute)
             self.dials.deviceChosen.connect(self._remember_dial_device)
             self.dials.appChosen.connect(self._remember_dial_app)
-            self.dials.expandRequested.connect(lambda: self.set_size(self.cfg.size))
+            self.dials.expandRequested.connect(lambda: self.set_mode("default"))
             lay.addWidget(self.dials)
             self._root.addWidget(content)
             self._content = content
@@ -191,6 +191,7 @@ class MixerWindow(QWidget):
         self.master.volumeChanged.connect(self._set_master_volume)
         self.master.muteToggled.connect(self._set_master_mute)
         self.master.collapseToggled.connect(self.set_compact)
+        self.master.dialsRequested.connect(lambda: self.set_mode("dials"))
 
         self.lists = QWidget()
         lists_lay = QVBoxLayout(self.lists)
@@ -550,11 +551,6 @@ class MixerWindow(QWidget):
 
         m.addAction("Bring the widget forward", self.bring_forward)
         m.addSeparator()
-        compact = m.addAction("Master volume only")
-        compact.setCheckable(True)
-        compact.setChecked(cfg.compact)
-        compact.setEnabled(cfg.view != "dials")
-        compact.toggled.connect(self.set_compact)
 
         def choices(title, options, current, setter):
             sub = m.addMenu(title)
@@ -566,8 +562,16 @@ class MixerWindow(QWidget):
                 group.addAction(act)
                 act.triggered.connect(lambda _=False, v=value: setter(v))
 
-        sizes = [("dials", "Extra small (dials)"), *theme.SIZES]
-        choices("Size", sizes, "dials" if cfg.view == "dials" else cfg.size, self.set_size)
+        dials = cfg.mode == "dials"
+        choices("Mode", [(mode, MODE_NAMES[mode]) for mode in MODES], cfg.mode, self.set_mode)
+        # Each mode has its own sizes, and remembers its own choice.
+        choices("Size", theme.DIAL_SIZES if dials else theme.SIZES, cfg.dial_size if dials else cfg.size, self.set_size)
+        compact = m.addAction("Master volume only")
+        compact.setCheckable(True)
+        compact.setChecked(cfg.compact)
+        compact.setEnabled(not dials)
+        compact.toggled.connect(self.set_compact)
+        m.addSeparator()
         choices("Theme", [(t, theme.THEME_NAMES[t]) for t in theme.THEMES], cfg.theme, self.set_theme)
         choices("Placement", [(layer, LAYER_NAMES[layer]) for layer in LAYERS], cfg.layer, self.set_layer)
 
@@ -599,12 +603,16 @@ class MixerWindow(QWidget):
         self.store.save()
         self.apply_config(old)
 
-    def set_size(self, size: int | str) -> None:
-        """A number from the size menu, or "dials" for Extra small."""
-        if size == "dials":
-            self._change(view="dials")
+    def set_mode(self, mode: str) -> None:
+        """"default" (the full mixer) or "dials"."""
+        self._change(mode=mode)
+
+    def set_size(self, size: int) -> None:
+        """Size for whichever mode is showing; the other mode keeps its own."""
+        if self.cfg.mode == "dials":
+            self._change(dial_size=int(size))
         else:
-            self._change(view="panel", size=int(size))
+            self._change(size=int(size))
 
     def _remember_dial_device(self, choice: str) -> None:
         self.cfg.dial_device = choice
@@ -641,7 +649,7 @@ class MixerWindow(QWidget):
 
     def apply_config(self, old: Config) -> None:
         new = self.cfg
-        looks = ("theme", "size", "accent", "view")
+        looks = ("theme", "size", "dial_size", "accent", "mode")
         if any(getattr(new, k) != getattr(old, k) for k in looks):
             self._build()
         if new.opacity != old.opacity:

@@ -21,7 +21,7 @@ def test_first_run_writes_defaults(tmp_path):
 def test_round_trip_keeps_everything(tmp_path):
     cfg = Config(theme="soundboard", size=65, layer="top", locked=True, opacity=0.6,
                  tab="apps", compact=True, accent="#2EC4B6", x=-1200, y=40,
-                 view="dials", dial_device="{0.0.0.00000000}.{ab-12}", dial_app="spotify.exe")
+                 mode="dials", dial_size=62, dial_device="{0.0.0.00000000}.{ab-12}", dial_app="spotify.exe")
     cfg.extra["future_setting"] = [1, 2]
     again = Config.from_toml(cfg.to_toml())
     assert again == cfg
@@ -39,7 +39,7 @@ def test_values_are_kept_in_range():
         ('layer = "floor"', "layer"),
         ("locked = 1", "locked"),
         ('accent = "teal"', "accent"),
-        ('view = "tiny"', "view"),
+        ('mode = "tiny"', "mode"),
         ("size = true", "size"),
         ("theme = ", "TOML"),
     ],
@@ -66,3 +66,16 @@ def test_hand_edits_load(tmp_path):
     store.path.write_text('theme = "tactical"\nlayer = "normal"\n')
     assert store.load() is None
     assert (store.config.theme, store.config.layer) == ("tactical", "normal")
+
+
+def test_settings_from_version_2_0_0_still_load():
+    """2.0.0 called the mode `view`, with "panel" for the full mixer."""
+    assert Config.from_toml('view = "dials"\n').mode == "dials"
+    assert Config.from_toml('view = "panel"\n').mode == "default"
+    again = Config.from_toml(Config.from_toml('view = "dials"\n').to_toml())
+    assert again.mode == "dials" and "view" not in again.extra
+
+
+def test_dial_size_kept_in_range():
+    assert Config.from_toml("dial_size = 5\n").dial_size == 35
+    assert Config.from_toml("dial_size = 500\n").dial_size == 100

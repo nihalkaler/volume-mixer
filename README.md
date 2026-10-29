@@ -28,10 +28,11 @@ same themes, same placements, same right-click menu, so the two look like a set.
   always on top
 - **Runs all the time**: starts with Windows, sits in the tray, and has no
   taskbar button
-- **Extra small: two dials**. Pick a device from one dropdown and an app from
-  the other, and turn each one with its own knob
-- **Dark, Light, Cyberpunk, Tactical and Sound board themes**, five sizes, and
-  your own accent colour
+- **Two modes**: **Default** (the full mixer) and **Dials**, where you pick a
+  device from one dropdown and an app from the other and turn each with its
+  own knob
+- **Dark, Light, Cyberpunk, Tactical and Sound board themes**, sizes for each
+  mode, and your own accent colour
 
 ![Light, Cyberpunk and Tactical themes](docs/themes.png)
 
@@ -40,10 +41,10 @@ in each corner, metal fader caps, and LED meters that go green, yellow, red.
 
 ![Sound board theme](docs/soundboard.png)
 
-## Extra small: the dials
+## Dials mode
 
-Right-click → **Size** → **Extra small (dials)** shrinks the widget to two
-knobs:
+Right-click → **Mode** → **Dials** (or click the little knob icon next to
+**Master volume**) turns the widget into two knobs:
 
 ![The dials in every theme](docs/dials.png)
 
@@ -56,10 +57,16 @@ knobs:
 - Turn a knob by dragging up (louder) or down (quieter), or with the scroll
   wheel. The speaker icon under each knob mutes it, and the LED bar shows how
   loud it is right now.
-- The little arrow top-right, or any other size in the menu, brings back the
-  full mixer.
+- The faders icon top-right, or right-click → **Mode** → **Default**, brings
+  back the full mixer.
 
 Your picks are remembered, also across restarts.
+
+**Sizes.** Each mode has its own sizes and remembers its own choice, so a
+Large mixer and Small dials stay that way when you switch back and forth.
+Dials come in Extra small, Small, Normal, Large and Extra large:
+
+![The dials from Extra small to Large](docs/dial-sizes.png)
 
 ## Getting it
 
@@ -82,8 +89,9 @@ icon, and turns on **Start with Windows**.
 | Make a device the Windows default | Devices tab → **Set default** |
 | Show just the master volume | Click the arrow top-right, or right-click → **Master volume only** |
 | Keep it behind windows, normal, or on top | Right-click → **Placement** |
-| Change the size or theme | Right-click → **Size** / **Theme** |
-| Switch to the two dials | Right-click → **Size** → **Extra small (dials)** |
+| Switch between the full mixer and the dials | Right-click → **Mode**, or the knob / faders icon top-right |
+| Change the size | Right-click → **Size** (sizes for whichever mode is showing) |
+| Change the theme | Right-click → **Theme** |
 | Turn a dial | Drag up or down on it, or scroll over it |
 | Reach the menu when the widget is covered | Click the icon in the system tray |
 | Open the Windows sound settings | Right-click → **Windows sound settings…** |
@@ -101,8 +109,10 @@ Right-click → **Edit settings file…** opens it in Notepad, and changes appea
 within a second of saving:
 
 ```toml
+mode = "default"      # default (full mixer) | dials
 theme = "dark"        # dark | light | cyberpunk | tactical | soundboard
-size = 50             # 30 to 100: 50 is normal, 100 is twice as big
+size = 50             # full mixer: 30 to 100, 50 is normal, 100 is twice as big
+dial_size = 50        # dials: 35 to 100, 50 is normal
 layer = "desktop"     # desktop | normal | top
 locked = false        # true stops the widget being dragged
 opacity = 0.85        # background, 0.3 to 1.0
@@ -110,7 +120,6 @@ tab = "devices"       # devices | apps
 compact = false       # true shows the master volume only
 accent = "#2EC4B6"    # optional: your own accent colour
 
-view = "panel"        # panel | dials (dials is the Extra small size)
 dial_device = "default"   # what the device dial controls; "default" follows Windows
 dial_app = "spotify.exe"  # what the app dial controls
 ```
@@ -177,7 +186,7 @@ coming back), dragging and locking, compact mode, and the settings file
 | `src/volume_mixer/desktop.py` | Windows integration through `ctypes`: placement layers, bringing the widget forward on Win+D (a foreground-window hook, as in the clock), not stealing focus, and Start with Windows (registry `Run` key) |
 | `src/volume_mixer/windows_audio.py` | Windows Core Audio via [pycaw](https://github.com/AndreMiras/pycaw): devices, per-app sessions, level meters, and `IPolicyConfig` for the default device |
 | `src/volume_mixer/widgets.py` | Master volume card, volume rows, level meters (bars, or LEDs on the sound board), sliders |
-| `src/volume_mixer/dials.py` | The Extra small view: knobs drawn per theme (knurled desk knobs on the sound board, faceted ones on the HUD themes), and the device and app dropdowns |
+| `src/volume_mixer/dials.py` | Dials mode: knobs drawn per theme (knurled desk knobs on the sound board, faceted ones on the HUD themes), and the device and app dropdowns |
 | `src/volume_mixer/theme.py` | The five themes (four share the World Clock Widget's colours) and the size-aware stylesheet, including the sound board's fader caps |
 | `src/volume_mixer/config.py` | Settings: TOML load/save, defaults, and keeping values in range |
 | `src/volume_mixer/icons.py` | Icons drawn in code in the theme's colours |
